@@ -10,9 +10,10 @@ import { Server } from 'socket.io';
 import { SOCKET_PATH } from '@video-chat/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import type { TypedServer } from './types.js';
 
-export function createSocketServer(httpServer: HttpServer): Server {
-  const io = new Server(httpServer, {
+export function createSocketServer(httpServer: HttpServer): TypedServer {
+  const io: TypedServer = new Server(httpServer, {
     path: SOCKET_PATH,
     // Без апгрейда с long-polling: экономит round-trip на старте (TDD §9.3).
     transports: [...config.socketTransports],

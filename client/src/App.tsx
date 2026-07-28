@@ -1,32 +1,50 @@
 /**
- * Каркас приложения (задача IP 1.5).
+ * Роутинг приложения (задача IP 5.3, ФТ-2, ФТ-4, US-2, US-4).
  *
- * Роутинг (`/` → JoinScreen, `/:roomId` → RoomPage) добавляет задача 5.3,
- * поэтому пока это заглушка, подтверждающая работоспособность окружения:
- * сборка, монтирование React и раздача статики с одного origin.
+ * `/` — стартовый экран, `/:roomId` — комната. Идентификатор комнаты
+ * генерируется **на клиенте** (`nanoid(12)`): это избавляет от лишнего
+ * HTTP-запроса перед входом, а коллизия — штатное поведение по ФТ-6 (участник
+ * просто попадёт в существующую комнату).
+ *
+ * SPA-fallback на сервере (задача 1.3) обязателен: без него прямой переход по
+ * ссылке-приглашению `/:roomId` вернул бы 404.
  */
+import { nanoid } from 'nanoid';
+import { BrowserRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { config } from './config';
+import { JoinScreen } from './components/JoinScreen';
+import { RoomPage } from './components/RoomPage';
+import { setPendingJoin } from './lib/pendingJoin';
+
+/** Стартовый экран: имя → новая комната → переход на её URL. */
+function CreateRoomScreen() {
+  const navigate = useNavigate();
+
+  return (
+    <JoinScreen
+      mode="create"
+      onSubmit={(name) => {
+        const roomId = nanoid(config.roomIdLength);
+        // Имя передаётся в памяти модуля: в URL ему не место (ссылкой делятся),
+        // web storage запрещён PRD §5, а состояние навигации react-router
+        // переживает перезагрузку и нарушило бы ФТ-28 (см. `pendingJoin.ts`).
+        setPendingJoin(roomId, name);
+        void navigate(`/${roomId}`);
+      }}
+    />
+  );
+}
 
 export function App() {
   return (
-    <main
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        maxWidth: 720,
-        margin: '4rem auto',
-        padding: '0 1rem',
-        lineHeight: 1.5,
-      }}
-    >
-      <h1>Видеочат-комната</h1>
-      <p>Каркас окружения запущен. Экраны появятся начиная с группы 5 плана реализации.</p>
-      <p>
-        Проверка secure context:{' '}
-        <strong>{window.isSecureContext ? 'да' : 'нет — getUserMedia будет недоступен'}</strong>
-      </p>
-      <p>
-        Сигналинг: <code>{config.socketUrl === '' ? 'тот же origin' : config.socketUrl}</code>
-      </p>
-    </main>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<CreateRoomScreen />} />
+        <Route path="/:roomId" element={<RoomPage />} />
+        {/* Любой другой путь ведёт на стартовый экран: «комнаты не найдено» как
+            состояния не существует (ФТ-5), а вложенных маршрутов у нас нет. */}
+        <Route path="*" element={<CreateRoomScreen />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

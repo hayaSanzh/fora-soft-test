@@ -1,20 +1,26 @@
 /**
- * Bootstrap клиента (задача IP 1.5; каркас).
+ * Bootstrap клиента (задачи IP 1.5, 5.1).
  *
- * Здесь же, до монтирования App, встанет проверка поддержки WebRTC
- * (`detectWebRtcSupport`, задача 5.1) — она обязана срабатывать раньше, чем
- * React дойдёт до вызова `getUserMedia`, иначе пользователь получит белый экран
- * вместо сообщения о несовместимости (ФТ-36).
+ * ★ Проверка поддержки WebRTC выполняется **до монтирования App** (ФТ-36).
+ * Если её отложить внутрь React, пользователь старого браузера получит белый
+ * экран после первого же обращения к `RTCPeerConnection`, а не сообщение о
+ * несовместимости.
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App.js';
+import { App } from './App';
+import { UnsupportedScreen } from './components/overlays/UnsupportedScreen';
+import { detectWebRtcSupport } from './lib/support';
+import './styles.css';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Не найден #root в index.html');
 
-createRoot(container).render(
+const support = detectWebRtcSupport();
+const root = createRoot(container);
+
+root.render(
   <StrictMode>
-    <App />
+    {support.ok ? <App /> : <UnsupportedScreen kind={support.reason ?? 'WEBRTC_UNSUPPORTED'} />}
   </StrictMode>,
 );

@@ -144,6 +144,35 @@ describe('createApp: /health поверх RoomStore (задачи 1.3 + 3.1)', (
   });
 });
 
+describe('createApp: безопасные заголовки и CSP (задача 4.8, ФТ-39, TDD §10.4)', () => {
+  const app = () => createApp({ getStats: () => ({ rooms: 0, participants: 0 }) });
+
+  it('★ CSP разрешает ровно то, что нужно приложению, и ничего больше', async () => {
+    const csp = (await request(app()).get(HEALTH_PATH)).headers['content-security-policy'] ?? '';
+
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("script-src 'self'");
+    // Локальные медиапотоки приходят как blob:.
+    expect(csp).toContain("media-src 'self' blob:");
+    // Без wss: сигналинг блокируется при default-src 'self'.
+    expect(csp).toContain("connect-src 'self' wss:");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    // Скрипты остаются строгими: 'unsafe-inline' допущен только для стилей.
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-eval/);
+  });
+
+  it('ставит остальные заголовки helmet и не раскрывает стек', async () => {
+    const res = await request(app()).get(HEALTH_PATH);
+
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    expect(res.headers['x-powered-by']).toBeUndefined();
+  });
+});
+
 describe('createApp: клиент не собран', () => {
   it('вместо белого экрана отдаёт 503 с внятной подсказкой', async () => {
     const app = createApp({

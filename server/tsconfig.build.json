@@ -1,5 +1,5 @@
 // Прод-сборка: тесты в dist не попадают. Типы тестов проверяет tsconfig.json.
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test-utils.ts"]
 }

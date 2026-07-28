@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Документ** | Technical Design Document (TDD) |
-| **Версия** | 1.4 |
+| **Версия** | 1.6 |
 | **Основан на** | `prd-video-chat-room.md` v1.0 |
 | **Шаблон** | `prd-design.mdc` |
 | **feature-name** | `video-chat-room` |
@@ -16,6 +16,10 @@
 **Изменения в v1.3** (группа 2): §2.1 дополнен составом общего пакета; §10.3 уточнён порядок санитизации имени (управляющие символы сворачиваются в пробел, а не удаляются, — иначе слова склеиваются). Контракт §6.2 реализован без отклонений.
 
 **Изменения в v1.4** (группа 3): §2.1 дополнен `server/src/RoomStore.ts`; §4.2 дополнен фактическим составом API стора и правилом «один сокет — один слот». Архитектура и инварианты §4.2/§7.2 реализованы без отклонений.
+
+**Изменения в v1.6** (группа 5): §2.1 дополнен модулями каркаса клиента; §3.3 дополнен фактическими именами действий reducer'а и решением про передачу имени через состояние навигации. Машина состояний реализована без отклонений.
+
+**Изменения в v1.5** (группа 4): §2.1 дополнен модулями обработчиков, лимитера и shutdown; §4.3 дополнен решениями по мусорному `media` и порядку системного сообщения о входе; §10.4 дополнен фактическим составом CSP. Контракт §6.2 реализован полностью, отклонений нет.
 
 ---
 
@@ -76,7 +80,9 @@
 - **группа 1:** каркас монорепо (npm workspaces `shared`/`server`/`client`, `tsconfig.base.json` + конфиги воркспейсов, ESLint 9 flat + Prettier, vitest), рабочий сервер (`server/src/index.ts`, `http/app.ts`, `http/internalAddress.ts`, `socket/createSocketServer.ts`, `logger.ts`), общий пакет (`shared/src/protocol.ts`), bootstrap клиента (`client/index.html`, `src/main.tsx`, `src/App.tsx`, `vite.config.ts`), `Dockerfile` + `docker-compose.yml`.
 
 - **группа 2:** общий контракт — `shared/src/types.ts` (данные), `events.ts` (события, ack, перечисления ошибок), `validation.ts` (zod-схемы), `limits.ts` (числовые лимиты и классы символов);
-- **группа 3:** `server/src/RoomStore.ts` — состояние комнат в памяти, подключён к `GET /health` (счётчики стали фактическими).
+- **группа 3:** `server/src/RoomStore.ts` — состояние комнат в памяти, подключён к `GET /health` (счётчики стали фактическими);
+- **группа 5:** каркас клиента — `client/src/lib/{support,validation,format}.ts`, `state/roomReducer.ts`, `strings.ts`, `styles.css`, `components/{JoinScreen,RoomPage}.tsx`, `components/overlays/UnsupportedScreen.tsx`, роутинг в `App.tsx`, проверка поддержки в `main.tsx`;
+- **группа 4:** `server/src/socket/socketHandlers.ts` (все события контракта), `socket/types.ts` (типизированные псевдонимы socket.io), `rateLimiter.ts` (token bucket + скользящее окно), `shutdown.ts` (graceful shutdown), `helmet` + CSP в `http/app.ts`, стенд `socket/harness.test-utils.ts` для integration-тестов.
 
 Отклонения от дерева §2.2, принятые при реализации (структура уточнена, состав — нет): серверные модули разложены по подкаталогам `server/src/http/` и `server/src/socket/` вместо плоского `server/src/`; вместо одного `shared/events.ts` пакет разложен на пять модулей с общим barrel `index.ts` (`protocol`, `limits`, `types`, `events`, `validation`) — разделение данных, транспорта и валидации; у `shared` и `server` есть отдельные `tsconfig.build.json`, чтобы тесты не попадали в `dist`.
 
@@ -232,6 +238,18 @@ stateDiagram-v2
 
 Важно: `AcquiringMedia` **не может** привести к терминальной ошибке — отказ в доступе к устройствам (F-33) переводит в `Connecting` с пустыми дорожками.
 
+Реализация (группа 5): переходы описаны действиями `SUPPORT_OK` / `SUPPORT_FAILED` / `NAME_SUBMITTED` / `MEDIA_READY` / `MEDIA_FAILED` / `JOINED` / `ROOM_FULL` / `SERVER_ERROR` / `RETRY_JOIN` / `LEFT` / `BACK_TO_IDLE` в `client/src/state/roomReducer.ts`; недопустимые переходы возвращают то же состояние, а не бросают исключение. Свойство «ошибка медиа не терминальна» закреплено параметризованным тестом по всем шести кодам `MediaErrorKind`.
+
+Имя со стартового экрана передаётся на `/:roomId` **через переменную в памяти модуля** (`client/src/lib/pendingJoin.ts`), а не через URL, web storage или состояние навигации react-router:
+
+- в URL имя попадать не должно — ссылкой делятся;
+- web storage запрещён PRD §5;
+- **состояние навигации react-router не подходит**: оно сериализуется в запись истории браузера и переживает перезагрузку страницы, из-за чего F5 не спрашивал бы имя заново. Это нарушало ФТ-28 и было найдено на ручной приёмке группы 5.
+
+Переменная в памяти модуля живёт ровно до перезагрузки, то есть точно столько, сколько нужно. Чтение идемпотентно: в React StrictMode инициализатор `useReducer` вызывается дважды, и семантика «прочитал — стёр» потеряла бы имя.
+
+Порядок проверок в `detectWebRtcSupport` (§8.1): **secure context проверяется раньше наличия API.** На небезопасном origin Chrome не создаёт `navigator.mediaDevices`, поэтому обратный порядок давал бы неверное сообщение «браузер не поддерживает WebRTC» вместо объяснения про HTTPS.
+
 ---
 
 ## 4. Components & Interfaces
@@ -330,6 +348,12 @@ leave(roomId: string, socketId: string): Participant | null {
 ```ts
 socket.data.roomId  // ★ источник истины «где сокет»; ставится только в room:join
 ```
+
+Решения, принятые при реализации (группа 4):
+- **Мусорное `media` в `room:join` не отклоняет вход**, а трактуется как «оба устройства выключены». Контракт `JoinError` не содержит кода для некорректного состояния устройств, а требование ФТ-14 прямо разрешает вход без устройств — отказ был бы строже требования.
+- **Системное сообщение о входе добавляется после снятия снапшота** и рассылается всем, включая вошедшего. Иначе вошедший получил бы его дважды: в истории снапшота и событием.
+- **Порядок в `room:join`**: ack отправляется до broadcast'ов `peer:joined` и `chat:message`, чтобы клиент успел подготовить состояние до первых событий комнаты.
+- **`socket.data.roomId` удаляется (`delete`) в самом начале обработки выхода**, до обращения к стору: повторный `room:leave` и гонка `room:leave` + `disconnect` не должны приводить к двойной рассылке `peer:left`.
 
 Нюансы:
 - **Релей проверяет принадлежность к комнате.** Перед пересылкой `signal:*` сервер убеждается, что `payload.to` — участник **той же** комнаты, что и `socket.data.roomId`. Без этой проверки любой клиент может инжектировать SDP/ICE в чужую комнату по угаданному socket.id.
@@ -899,7 +923,7 @@ export const roomIdSchema = z.string().regex(/^[A-Za-z0-9_-]{4,64}$/, 'INVALID_R
 | Захват слотов ботом | `MAX_PARTICIPANTS` + один сокет = один слот; capacity-DoS на публичную комнату **признаётся возможным** — прямое следствие отсутствия авторизации (PRD §5) |
 | Cross-room инжект сигналинга | проверка, что `to` в той же комнате (§4.3) |
 | CORS | `cors.origin` — точный список origin'ов; в prod клиент и сервер на одном origin, CORS не нужен вовсе |
-| HTTP-заголовки | `helmet()`; CSP: `default-src 'self'`, `media-src 'self' blob:`, `connect-src 'self' wss:` |
+| HTTP-заголовки | `helmet()`; CSP: `default-src 'self'`, `script-src 'self'`, `media-src 'self' blob:`, `connect-src 'self' wss:`, `img-src 'self' data: blob:`, `style-src 'self' 'unsafe-inline'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`. `'unsafe-inline'` допущено **только** для стилей (React ставит инлайновые style-атрибуты); для скриптов не допущено ни `unsafe-inline`, ни `unsafe-eval` — это проверяется тестом |
 
 ### 10.5 Персональные данные / GDPR
 

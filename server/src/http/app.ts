@@ -12,6 +12,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import express, { type Express, type Request, type Response } from 'express';
+import helmet from 'helmet';
 import { HEALTH_PATH, type HealthResponse } from '@video-chat/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -55,6 +56,43 @@ export function createApp(options: CreateAppOptions): Express {
   // закрывается ещё и на nginx (задача 15.2).
   app.set('trust proxy', trustProxy);
   app.disable('x-powered-by');
+
+  /**
+   * Безопасные заголовки и CSP (задача IP 4.8, TDD §10.4).
+   *
+   * CSP здесь — не формальность, а вторая линия защиты от XSS после
+   * whitelist-валидации и JSX-экранирования (ФТ-39): даже если инъекция
+   * когда-нибудь пройдёт, выполнить внешний скрипт или утечь данные на чужой
+   * домен она не сможет.
+   */
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: {
+          'default-src': ["'self'"],
+          'script-src': ["'self'"],
+          // Локальные медиапотоки приходят как blob: (§10.4).
+          'media-src': ["'self'", 'blob:'],
+          // WSS — сигналинг на том же origin; wss: нужен явно, иначе
+          // соединение блокируется при default-src 'self'.
+          'connect-src': ["'self'", 'wss:'],
+          'img-src': ["'self'", 'data:', 'blob:'],
+          // React ставит инлайновые style-атрибуты; без 'unsafe-inline'
+          // ломается вся вёрстка. Скрипты при этом остаются строгими.
+          'style-src': ["'self'", "'unsafe-inline'"],
+          'font-src': ["'self'"],
+          'object-src': ["'none'"],
+          'frame-ancestors': ["'none'"],
+          'base-uri': ["'self'"],
+          'form-action': ["'self'"],
+        },
+      },
+      // Кросс-origin изоляция не нужна: сторонних ресурсов нет, а COEP ломает
+      // отладку в dev-окружении.
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
 
   // ── /health ────────────────────────────────────────────────────────────────
   app.get(HEALTH_PATH, (req: Request, res: Response) => {
