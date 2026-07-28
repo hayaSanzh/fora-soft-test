@@ -10,6 +10,13 @@
  * Правило: ни один модуль сервера не читает `process.env` напрямую.
  */
 
+import {
+  DEFAULT_MAX_MESSAGE_LEN,
+  DEFAULT_MAX_MESSAGES,
+  DEFAULT_MAX_NAME_LEN,
+  DEFAULT_MAX_PARTICIPANTS,
+} from '@video-chat/shared';
+
 /** Читает целое число из env; при отсутствии/мусоре возвращает `fallback`. */
 function num(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
@@ -108,13 +115,13 @@ export function readServerConfig(env: EnvSource = process.env) {
      * Лимит участников. 4 — следствие mesh-топологии (TDD §9.2), не UX-решение.
      * Вынесен в env как feature-flag для нагрузочных экспериментов (§12.5).
      */
-    maxParticipants: num(env.MAX_PARTICIPANTS, 4),
+    maxParticipants: num(env.MAX_PARTICIPANTS, DEFAULT_MAX_PARTICIPANTS),
     /**
      * Q8 → закрыт: глубина истории чата 200 сообщений (ring buffer, TDD §4.2).
      * Поздний участник получает последние `maxMessages` — этого достаточно
      * для ФТ-23, а комната перестаёт неограниченно расти в памяти.
      */
-    maxMessages: num(env.MAX_MESSAGES, 200),
+    maxMessages: num(env.MAX_MESSAGES, DEFAULT_MAX_MESSAGES),
 
     // ── Валидация (зеркало клиентских лимитов, TDD §10.3) ───────────────────────
     /**
@@ -123,12 +130,12 @@ export function readServerConfig(env: EnvSource = process.env) {
      * (кириллица и латиница разрешены). Сама схема — в `shared/` (задача 2.3),
      * здесь только длина, чтобы не расходились числа.
      */
-    maxNameLen: num(env.MAX_NAME_LEN, 30),
+    maxNameLen: num(env.MAX_NAME_LEN, DEFAULT_MAX_NAME_LEN),
     /**
      * Q7 → закрыт: лимит длины сообщения 500 символов (ФТ-40).
      * PRD оставляет значение на усмотрение разработчика.
      */
-    maxMessageLen: num(env.MAX_MESSAGE_LEN, 500),
+    maxMessageLen: num(env.MAX_MESSAGE_LEN, DEFAULT_MAX_MESSAGE_LEN),
 
     // ── Антифлуд (TDD §10.4) ────────────────────────────────────────────────────
     /**

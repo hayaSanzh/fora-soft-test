@@ -89,16 +89,20 @@ graph LR
 
 ---
 
-- [ ] **2. Общий контракт `shared/`**
+- [x] **2. Общий контракт `shared/`** — выполнено, отчёт: `acceptance-2-video-chat-room.md`
   - Единый источник истины по типам и валидации для клиента и сервера — делается до backend и frontend.
-  - [ ] 2.1 Описать типы данных: `MediaState`, `Participant`, `ChatItem` (discriminated union `user` / `system`), `RoomSnapshot`. (0.5 д)
+  - [x] 2.1 Описать типы данных: `MediaState`, `Participant`, `ChatItem` (discriminated union `user` / `system`), `RoomSnapshot`. (0.5 д)
     - _Requirements: ФТ-25, ФТ-30, Design: §5.2, §6.2_
-  - [ ] 2.2 Описать типы событий `ClientToServer` / `ServerToClient` целиком по таблицам контракта, включая типы ack и перечисления ошибок (`JoinError`, `ChatError`). (0.5 д)
+    - Результат: `shared/src/types.ts` — `MediaState`, `Participant`, `ChatItem` (union `user` / `system` + type guards), `RoomSnapshot`, `SystemMessageKind` (`join` / `leave` / `shutdown`).
+  - [x] 2.2 Описать типы событий `ClientToServer` / `ServerToClient` целиком по таблицам контракта, включая типы ack и перечисления ошибок (`JoinError`, `ChatError`). (0.5 д)
     - _Requirements: ФТ-8, ФТ-24, ФТ-40, Design: §6.2_
-  - [ ] 2.3 Реализовать zod-схемы `nameSchema` (whitelist `\p{L}\p{N}` + пробел/`.`/`_`/`-`, срезание управляющих и zero-width символов, ≤30), `textSchema` (trim, 1..500), `roomIdSchema` (`^[A-Za-z0-9_-]{4,64}$`). (0.5 д)
+    - Результат: `shared/src/events.ts` — все 7 + 7 событий в форме socket.io-генериков, `JoinAck` / `ChatAck`, `JOIN_ERRORS` / `CHAT_ERRORS`, `SocketData`, структурные `SdpDescription` / `IceCandidateData` (без зависимости от `lib.dom`), плюс compile-time проверка полноты списков событий.
+  - [x] 2.3 Реализовать zod-схемы `nameSchema` (whitelist `\p{L}\p{N}` + пробел/`.`/`_`/`-`, срезание управляющих и zero-width символов, ≤30), `textSchema` (trim, 1..500), `roomIdSchema` (`^[A-Za-z0-9_-]{4,64}$`). (0.5 д)
     - _Requirements: ФТ-24, ФТ-38, ФТ-40, US-1, Design: §5.3, §10.3_
-  - [ ] 2.4 Написать unit-тесты валидации: пустое имя, пробелы, zero-width, >30 символов, `<script>`, кириллица с дефисом, пустое сообщение. (0.25 д)
+    - Результат: `shared/src/validation.ts` — `nameSchema`, `textSchema`, `roomIdSchema`, `mediaStateSchema`, фабрики `makeNameSchema(maxLen)` / `makeTextSchema(maxLen)` (лимит из env реально работает) и обёртка `validate()`, отдающая код ошибки для ack и подсказок UI.
+  - [x] 2.4 Написать unit-тесты валидации: пустое имя, пробелы, zero-width, >30 символов, `<script>`, кириллица с дефисом, пустое сообщение. (0.25 д)
     - _Requirements: ФТ-24, ФТ-38, US-1, Design: §11.2_
+    - Результат: 33 теста валидации + 17 тестов контракта. Тест поймал дефект санитизации из TDD §10.3: слова склеивались при переводе строки в имени — исправлено.
 
 ---
 

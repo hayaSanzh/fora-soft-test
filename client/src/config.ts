@@ -9,6 +9,13 @@
  * русские строки UI живут в `strings.ts` (задача 5.2), не здесь.
  */
 
+import {
+  DEFAULT_MAX_MESSAGE_LEN,
+  DEFAULT_MAX_NAME_LEN,
+  DEFAULT_MAX_PARTICIPANTS,
+  ROOM_ID_LENGTH,
+} from '@video-chat/shared';
+
 /** Источник переменных: `import.meta.env` в браузере, подставленный объект в тестах. */
 export type EnvSource = Record<string, string | undefined>;
 
@@ -104,15 +111,15 @@ export function readClientConfig(env: EnvSource = viteEnv) {
 
     // ── Комната ─────────────────────────────────────────────────────────────────
     /** Дублирует серверный лимит только для раскладки сетки; истина — на сервере. */
-    maxParticipants: num(env.VITE_MAX_PARTICIPANTS, 4),
+    maxParticipants: num(env.VITE_MAX_PARTICIPANTS, DEFAULT_MAX_PARTICIPANTS),
     /** `nanoid(12)` ≈ 71 бит: `roomId` — единственный секрет комнаты (TDD §5.3, §10.1). */
-    roomIdLength: num(env.VITE_ROOM_ID_LENGTH, 12),
+    roomIdLength: num(env.VITE_ROOM_ID_LENGTH, ROOM_ID_LENGTH),
 
     // ── Валидация: зеркало серверных лимитов (TDD §10.3) ────────────────────────
     /** ФТ-38. Q6 → закрыт: whitelist символов; регулярка — в `shared/` (задача 2.3). */
-    maxNameLen: num(env.VITE_MAX_NAME_LEN, 30),
+    maxNameLen: num(env.VITE_MAX_NAME_LEN, DEFAULT_MAX_NAME_LEN),
     /** Q7 → закрыт: 500 символов; клиент показывает счётчик остатка (задача 10.6). */
-    maxMessageLen: num(env.VITE_MAX_MESSAGE_LEN, 500),
+    maxMessageLen: num(env.VITE_MAX_MESSAGE_LEN, DEFAULT_MAX_MESSAGE_LEN),
 
     // ── Чат ─────────────────────────────────────────────────────────────────────
     /**
