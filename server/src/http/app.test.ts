@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { HEALTH_PATH } from '@video-chat/shared';
+import { RoomStore } from '../RoomStore.js';
 import { createApp, type RoomStats } from './app.js';
 
 const INDEX_HTML = '<!doctype html><title>Видеочат</title><div id="root"></div>';
@@ -115,6 +116,31 @@ describe('createApp: раздача статики и SPA-fallback (ФТ-4)', ()
     const res = await request(app()).get(HEALTH_PATH);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+  });
+});
+
+describe('createApp: /health поверх RoomStore (задачи 1.3 + 3.1)', () => {
+  it('показывает живые комнаты и участников, а не число сокетов', async () => {
+    const store = new RoomStore();
+    const app = createApp({ getStats: () => store.stats() });
+
+    store.join('room-a', 's1', 'Аня', { audio: true, video: true });
+    store.join('room-a', 's2', 'Борис', { audio: true, video: true });
+    store.join('room-b', 's3', 'Вера', { audio: false, video: false });
+
+    expect((await request(app).get(HEALTH_PATH)).body).toMatchObject({
+      status: 'ok',
+      rooms: 2,
+      participants: 3,
+    });
+
+    // Выход последнего участника комнаты уменьшает и счётчик комнат (ФТ-9).
+    store.leave('room-b', 's3');
+
+    expect((await request(app).get(HEALTH_PATH)).body).toMatchObject({
+      rooms: 1,
+      participants: 2,
+    });
   });
 });
 

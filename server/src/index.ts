@@ -10,18 +10,20 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { createApp } from './http/app.js';
 import { createSocketServer } from './socket/createSocketServer.js';
+import { RoomStore } from './RoomStore.js';
 
 const httpServer = createServer();
 const io = createSocketServer(httpServer);
 
-const app = createApp({
-  getStats: () => ({
-    // TODO(задача 3.1): подставить RoomStore — счётчик комнат появится вместе
-    // с ним. До тех пор число живых комнат неизвестно и честно равно 0.
-    rooms: 0,
-    participants: io.engine.clientsCount,
-  }),
-});
+/**
+ * Единственный владелец состояния на весь процесс (TDD §4.2).
+ * Обработчики событий подключаются к нему в группе 4.
+ */
+const rooms = new RoomStore();
+
+// Счётчики берутся из стора на каждый запрос: `/health` показывает живые
+// комнаты и участников, а не число открытых сокетов (TDD §6.1).
+const app = createApp({ getStats: () => rooms.stats() });
 
 httpServer.on('request', app);
 

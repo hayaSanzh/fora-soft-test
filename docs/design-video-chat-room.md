@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Документ** | Technical Design Document (TDD) |
-| **Версия** | 1.3 |
+| **Версия** | 1.4 |
 | **Основан на** | `prd-video-chat-room.md` v1.0 |
 | **Шаблон** | `prd-design.mdc` |
 | **feature-name** | `video-chat-room` |
@@ -14,6 +14,8 @@
 **Изменения в v1.2** (группа 1): §2.1 дополнен составом созданного каркаса и отклонениями от дерева §2.2; §12.5 дополнен флагом `TRUST_PROXY`. Архитектурных изменений нет.
 
 **Изменения в v1.3** (группа 2): §2.1 дополнен составом общего пакета; §10.3 уточнён порядок санитизации имени (управляющие символы сворачиваются в пробел, а не удаляются, — иначе слова склеиваются). Контракт §6.2 реализован без отклонений.
+
+**Изменения в v1.4** (группа 3): §2.1 дополнен `server/src/RoomStore.ts`; §4.2 дополнен фактическим составом API стора и правилом «один сокет — один слот». Архитектура и инварианты §4.2/§7.2 реализованы без отклонений.
 
 ---
 
@@ -73,7 +75,8 @@
 - **группа 0:** `server/src/config.ts`, `client/src/config.ts`, `.nvmrc` — дефолты Q5–Q11 и фиксация версии Node;
 - **группа 1:** каркас монорепо (npm workspaces `shared`/`server`/`client`, `tsconfig.base.json` + конфиги воркспейсов, ESLint 9 flat + Prettier, vitest), рабочий сервер (`server/src/index.ts`, `http/app.ts`, `http/internalAddress.ts`, `socket/createSocketServer.ts`, `logger.ts`), общий пакет (`shared/src/protocol.ts`), bootstrap клиента (`client/index.html`, `src/main.tsx`, `src/App.tsx`, `vite.config.ts`), `Dockerfile` + `docker-compose.yml`.
 
-- **группа 2:** общий контракт — `shared/src/types.ts` (данные), `events.ts` (события, ack, перечисления ошибок), `validation.ts` (zod-схемы), `limits.ts` (числовые лимиты и классы символов).
+- **группа 2:** общий контракт — `shared/src/types.ts` (данные), `events.ts` (события, ack, перечисления ошибок), `validation.ts` (zod-схемы), `limits.ts` (числовые лимиты и классы символов);
+- **группа 3:** `server/src/RoomStore.ts` — состояние комнат в памяти, подключён к `GET /health` (счётчики стали фактическими).
 
 Отклонения от дерева §2.2, принятые при реализации (структура уточнена, состав — нет): серверные модули разложены по подкаталогам `server/src/http/` и `server/src/socket/` вместо плоского `server/src/`; вместо одного `shared/events.ts` пакет разложен на пять модулей с общим barrel `index.ts` (`protocol`, `limits`, `types`, `events`, `validation`) — разделение данных, транспорта и валидации; у `shared` и `server` есть отдельные `tsconfig.build.json`, чтобы тесты не попадали в `dist`.
 
@@ -309,6 +312,10 @@ leave(roomId: string, socketId: string): Participant | null {
   return p;
 }
 ```
+
+Фактический состав API (группа 3): `get`, `createIfAbsent`, `join`, `leave`, `getParticipant`, `updateMedia`, `addMessage` + обёртки `addUserMessage` / `addSystemMessage`, `snapshot`, `stats`. Лимиты, источник времени и генератор `messageId` инжектируются через конструктор — иначе тесты истории и ring buffer пришлось бы писать на реальных `Date.now()` и `nanoid`.
+
+Дополнительный инвариант, введённый при реализации: **один сокет — один слот.** Повторный `join` тем же `socket.id` возвращает `ALREADY_JOINED` (код уже есть в контракте §6.2), а не переписывает участника молча. Требование ФТ-29 «несколько вкладок = несколько участников» при этом не нарушено: у каждой вкладки свой сокет.
 
 Нюансы:
 - `MAX_PARTICIPANTS` — из env, дефолт 4. Служит и «feature-flag'ом» для нагрузочных экспериментов, и защитой от хардкода.
