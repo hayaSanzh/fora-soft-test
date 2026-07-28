@@ -30,8 +30,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "verify": "npm run typecheck && npm run lint && npm run test",
-    "clean": "rm -rf shared/dist server/dist client/dist coverage"
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "clean": "rm -rf shared/dist server/dist client/dist coverage",
+    "serve": "npm run build && npm start"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

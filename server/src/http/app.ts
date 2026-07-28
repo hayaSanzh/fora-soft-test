@@ -9,7 +9,7 @@
  * Безопасные заголовки (`helmet`, CSP) добавляет задача 4.8: они относятся к
  * контенту, которого на этом шаге ещё нет.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import express, { type Express, type Request, type Response } from 'express';
 import helmet from 'helmet';
@@ -43,6 +43,20 @@ export function createApp(options: CreateAppOptions): Express {
   } = options;
   const staticDir = path.resolve(options.staticDir ?? config.staticDir);
   const indexHtml = path.join(staticDir, 'index.html');
+
+  /**
+   * Возраст собранного клиента в логе запуска.
+   *
+   * Практическая необходимость: `npm run verify` не собирает бандл, поэтому
+   * легко открыть в браузере старую сборку и «не увидеть» только что
+   * написанный код. Строка в логе снимает этот класс недоразумений.
+   */
+  if (existsSync(indexHtml)) {
+    const builtAt = statSync(indexHtml).mtime.toISOString();
+    logger.info({ staticDir, builtAt }, 'клиент найден');
+  } else {
+    logger.warn({ staticDir }, 'клиент не собран: запустите `npm run build`');
+  }
 
   const app = express();
 

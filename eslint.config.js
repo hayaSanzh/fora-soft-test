@@ -145,8 +145,11 @@ export default tseslint.config(
 
   // ── Тесты ───────────────────────────────────────────────────────────────────
   {
-    files: ['**/*.test.ts', '**/*.test.tsx'],
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.test-utils.ts'],
     rules: {
+      // В тестах допустима работа с console: заглушение шумных предупреждений
+      // библиотек и диагностика падений.
+      'no-console': 'off',
       // В тестах допустимы небезопасные приведения при работе с моками.
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',

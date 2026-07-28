@@ -187,31 +187,41 @@ graph LR
 
 ---
 
-- [ ] **6. Клиент: socket-сервис**
+- [x] **6. Клиент: socket-сервис** — выполнено, отчёт: `acceptance-6-video-chat-room.md`
   - Подключение и трансляция ошибок транспорта в состояния экрана. Зависимость: после 4 и 5.
-  - [ ] 6.1 `createSocket()`: `reconnection: false` (auto-reconnect запрещён требованием), `autoConnect: false`, `transports: ['websocket']`, `timeout: 8000`. (0.25 д)
+  - [x] 6.1 `createSocket()`: `reconnection: false` (auto-reconnect запрещён требованием), `autoConnect: false`, `transports: ['websocket']`, `timeout: 8000`. (0.25 д)
     - _Requirements: ФТ-31, US-11, Design: §4.1_
-  - [ ] 6.2 Отправка `room:join` и обработка ack: `ok` → `inRoom`, `ROOM_FULL` → экран «Комната заполнена», `INVALID_ROOM_ID` → редирект на `/`. (0.5 д)
+    - Результат: `createSocket()` в `services/socket.ts`; все четыре опции проверены тестами. Отсутствие auto-reconnect подтверждено на живом сервере: после обрыва клиент не подключается снова и фантомный участник на сервере не появляется.
+  - [x] 6.2 Отправка `room:join` и обработка ack: `ok` → `inRoom`, `ROOM_FULL` → экран «Комната заполнена», `INVALID_ROOM_ID` → редирект на `/`. (0.5 д)
     - _Requirements: ФТ-8, US-5, Design: §6.2, §8.1_
-  - [ ] 6.3 Обработка `connect_error` / `timeout` → экран ошибки сервера; собственный `disconnect` → экран ошибки + полный teardown (закрыть все PC, остановить дорожки). (0.5 д)
+    - Результат: `startRoomConnection()` отправляет `room:join` с таймаутом; `ok` → `JOINED`, `ROOM_FULL` → экран «Комната заполнена» (сокет закрыт, слот не занят), `INVALID_ROOM_ID` → редирект на `/`, `INVALID_NAME`/`ALREADY_JOINED` → экран ошибки как признак дефекта клиента.
+  - [x] 6.3 Обработка `connect_error` / `timeout` → экран ошибки сервера; собственный `disconnect` → экран ошибки + полный teardown (закрыть все PC, остановить дорожки). (0.5 д)
     - _Requirements: ФТ-31, ФТ-35, US-13, Design: §4.1, §8.1, §8.3_
+    - Результат: `connect_error`, таймаут ack и незапрошенный `disconnect` идут одним путём → экран ошибки сервера + `teardownMedia()`; teardown идемпотентен (проверено серией событий); собственный выход экран ошибки не показывает.
+    - **Дополнительно (по итогам ручной приёмки):** здесь же реализованы подписки `peer:joined` / `peer:left` / `media:state` / `chat:message` → reducer. Формально они описаны в задаче 9.1, но веха M1 требует «список участников живой», а presence от WebRTC не зависит. Для группы 9 оставлен шов: колбэки `onPeerJoined` / `onPeerLeft` для создания и закрытия `RTCPeerConnection`.
 
 ---
 
-- [ ] **7. Клиент: `useLocalMedia` — локальные дорожки и тумблеры**
+- [x] **7. Клиент: `useLocalMedia` — локальные дорожки и тумблеры** — выполнено, отчёт: `acceptance-7-video-chat-room.md`
   - Микрофон и камера ведут себя принципиально по-разному — это требование PRD, не удобство реализации.
-  - [ ] 7.1 **Раздельные** вызовы `getUserMedia` для audio и video, каждый в своём `try/catch`: отсутствие одного устройства не должно ронять получение другого. (0.5 д)
+  - [x] 7.1 **Раздельные** вызовы `getUserMedia` для audio и video, каждый в своём `try/catch`: отсутствие одного устройства не должно ронять получение другого. (0.5 д)
     - _Requirements: ФТ-13, ФТ-14, US-6, Design: §4.4_
-  - [ ] 7.2 Маппинг ошибок `getUserMedia` в `MediaErrorKind`: `NotAllowedError`, `NotFoundError`, `NotReadableError`, `OverconstrainedError` (с retry на ослабленных constraints); во всех случаях вход в комнату продолжается. (0.5 д)
+    - Результат: два независимых вызова (проверено: `f.calls` = `[{audio}, {video}]`); отсутствие микрофона не мешает получить камеру и наоборот; функция никогда не бросает.
+  - [x] 7.2 Маппинг ошибок `getUserMedia` в `MediaErrorKind`: `NotAllowedError`, `NotFoundError`, `NotReadableError`, `OverconstrainedError` (с retry на ослабленных constraints); во всех случаях вход в комнату продолжается. (0.5 д)
     - _Requirements: ФТ-14, ФТ-33, US-12, Design: §4.4, §8.1, §8.3_
-  - [ ] 7.3 Тумблер микрофона через `track.enabled` (дорожка остаётся живой) + `emit media:state`. (0.25 д)
+    - Результат: `toMediaErrorKind()` покрывает 8 имён ошибок (включая устаревшие `PermissionDeniedError`, `TrackStartError`); `OverconstrainedError` → повторный запрос без ограничений; во всех случаях вход в комнату продолжается.
+  - [x] 7.3 Тумблер микрофона через `track.enabled` (дорожка остаётся живой) + `emit media:state`. (0.25 д)
     - _Requirements: ФТ-15, ФТ-16, US-7, Design: §4.4_
-  - [ ] 7.4 Тумблер камеры: выключение — `sender.replaceTrack(null)` на всех PC **плюс** `track.stop()` для гашения аппаратного индикатора; включение — повторный `getUserMedia` + `replaceTrack(newTrack)`. **`removeTrack` не использовать** (иначе 6 SDP-обменов на клик). (0.5 д)
+    - Результат: `track.enabled = false`, дорожка **не останавливается** (проверено тестом), состояние рассылается через `media:state`; повторное включение не требует нового `getUserMedia`.
+  - [x] 7.4 Тумблер камеры: выключение — `sender.replaceTrack(null)` на всех PC **плюс** `track.stop()` для гашения аппаратного индикатора; включение — повторный `getUserMedia` + `replaceTrack(newTrack)`. **`removeTrack` не использовать** (иначе 6 SDP-обменов на клик). (0.5 д)
     - _Requirements: ФТ-17, ФТ-19, US-7, Design: §4.4, §4.5, §7.3, R4_
-  - [ ] 7.5 Обработчик `track.onended`: тумблер → off, `emit media:state`, баннер «Устройство отключено»; подписка на `navigator.mediaDevices.ondevicechange`. (0.25 д)
+    - Результат: выключение — сначала снятие с senders, затем `track.stop()` (порядок проверен тестом); включение — новый `getUserMedia`. `removeTrack` отсутствует и в исходнике, и в собранном бандле.
+  - [x] 7.5 Обработчик `track.onended`: тумблер → off, `emit media:state`, баннер «Устройство отключено»; подписка на `navigator.mediaDevices.ondevicechange`. (0.25 д)
     - _Requirements: ФТ-20, US-7, Design: §4.4, §8.1_
-  - [ ] 7.6 `teardown()`: остановка **всех** дорожек при выходе и размонтировании — иначе камера продолжает работать после выхода. (0.25 д)
+    - Результат: `ended` → тумблер off, `media:state` разослан, баннер «Устройство отключено», дорожка снята с senders; после потери устройство можно включить снова. Подписка на `devicechange` создаётся и снимается.
+  - [x] 7.6 `teardown()`: остановка **всех** дорожек при выходе и размонтировании — иначе камера продолжает работать после выхода. (0.25 д)
     - _Requirements: ФТ-27, Design: §4.4, R7_
+    - Результат: `teardown()` останавливает **все** дорожки, идемпотентен, снимает подписки; дорожка, полученная уже после выхода, немедленно останавливается (гонка с диалогом разрешений).
 
 ---
 
@@ -243,6 +253,7 @@ graph LR
 - [ ] **9. Клиент: `useRoomSession` — оркестратор**
   - Единственное место, где socket-события связываются с `PeerManager` и React-состоянием. Зависимость: после 6, 7, 8.
   - [ ] 9.1 Подписки: `peer:joined` → `createPeer` + оффер; `peer:left` → `closePeer` + удаление участника; `signal:*` → в `PeerManager`; `media:state` → в reducer; `chat:message` → в историю. (0.5 д)
+    - Частично выполнено группой 6: presence-часть (`peer:joined` / `peer:left` / `media:state` / `chat:message` → reducer) уже работает, для WebRTC-части готовы колбэки `onPeerJoined` / `onPeerLeft`. Остаётся `createPeer` / `closePeer` и релей `signal:*` в `PeerManager`.
     - _Requirements: ФТ-25, ФТ-26, ФТ-27, ФТ-31, Design: §4.6, §7.1, §7.4_
   - [ ] 9.2 Хранить `MediaStream` и `RTCPeerConnection` **вне** React-состояния (в `useRef`-мапе), обновляя UI только при появлении/исчезновении пира — иначе видео мигает на каждое изменение дорожки. (0.25 д)
     - _Requirements: ФТ-11, Design: §4.6, §5.4, §9.3_

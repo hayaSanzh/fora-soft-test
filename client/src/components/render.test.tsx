@@ -7,11 +7,11 @@
  * чаще всего и молча: пропали ли русские строки, отрендерился ли `<input>`,
  * экранируется ли пользовательский текст, не течёт ли внутренний id в UI.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { JoinScreen, shouldShowNameHint } from './JoinScreen';
-import { RoomPage } from './RoomPage';
+import { describeParticipant, RoomPage } from './RoomPage';
 import { UnsupportedScreen } from './overlays/UnsupportedScreen';
 import { clearPendingJoin, setPendingJoin } from '../lib/pendingJoin';
 import { strings } from '../strings';
@@ -28,6 +28,24 @@ function renderRoom(path: string): string {
 }
 
 afterEach(() => clearPendingJoin());
+
+/**
+ * `renderToStaticMarkup` — это серверный рендер, а react-router внутри
+ * использует `useLayoutEffect`, поэтому React печатает предупреждение о
+ * несовместимости. Для этих тестов оно шум: разметка проверяется корректно, а
+ * интерактивные тесты на jsdom появятся в задаче 12. Глушим только это
+ * сообщение, остальные ошибки консоли по-прежнему видны.
+ */
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('useLayoutEffect does nothing')) return;
+    originalError(...(args as Parameters<typeof console.error>));
+  };
+});
+afterAll(() => {
+  console.error = originalError;
+});
 
 describe('JoinScreen (задача 5.4)', () => {
   it('★ рендерит поле имени, подсказку, счётчик и кнопку «Создать комнату»', () => {
@@ -186,5 +204,42 @@ describe('★ регрессия: подсказка не должна ждат�
   it('валидное имя подсказку не показывает ни при каких условиях', () => {
     expect(shouldShowNameHint('Анна-Мария', false, true)).toBe(false);
     expect(shouldShowNameHint('Анна-Мария', true, true)).toBe(false);
+  });
+});
+
+describe('★ регрессия: состояние устройств участника видно в списке (ФТ-16, ФТ-18)', () => {
+  const peer = (media: { audio: boolean; video: boolean }) => ({
+    id: 'peer-1',
+    name: 'Борис',
+    media,
+    joinedAt: 1_769_000_000_000,
+  });
+
+  it('оба устройства включены — пометок нет', () => {
+    expect(describeParticipant(peer({ audio: true, video: true }), false)).toBe('Борис');
+  });
+
+  it('★ микрофон выключен → «Микрофон выключен» (ФТ-16)', () => {
+    expect(describeParticipant(peer({ audio: false, video: true }), false)).toBe(
+      `Борис · ${strings.a11y.micMuted}`,
+    );
+  });
+
+  it('★ камера выключена → «Видео выключено» (ФТ-18)', () => {
+    expect(describeParticipant(peer({ audio: true, video: false }), false)).toBe(
+      `Борис · ${strings.a11y.noVideo}`,
+    );
+  });
+
+  it('оба выключены — обе пометки', () => {
+    const text = describeParticipant(peer({ audio: false, video: false }), false);
+    expect(text).toContain(strings.a11y.micMuted);
+    expect(text).toContain(strings.a11y.noVideo);
+  });
+
+  it('себя видно как «(вы)», внутренний id в подписи не участвует (ФТ-30)', () => {
+    const text = describeParticipant(peer({ audio: true, video: true }), true);
+    expect(text).toBe(`Борис (${strings.room.you})`);
+    expect(text).not.toContain('peer-1');
   });
 });
