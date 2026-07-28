@@ -1,0 +1,47 @@
+# Прод-подобный локальный прогон (задача IP 1.6, TDD §12.1).
+#
+# Отличие от прода — только отсутствие nginx с TLS перед контейнером. Поэтому
+# по адресу http://localhost:3001 камера работать будет (localhost — secure
+# context by exception), а по http://<LAN-IP>:3001 — нет: там нужен HTTPS,
+# то есть либо nginx с сертификатом, либо dev-сервер Vite с mkcert (§12.1).
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video-chat-room:local
+    container_name: video-chat-room
+    restart: unless-stopped
+    ports:
+      # Только на loopback хоста. За NAT docker подменяет адрес источника на
+      # адрес шлюза (приватный диапазон), из-за чего проверка «/health только
+      # внутри сети» при публикации 0.0.0.0:3001 перестала бы что-либо значить.
+      # Наружу в прод смотрит nginx с TLS (§12.2, задача 15.2).
+      - '127.0.0.1:3001:3001'
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      # Значения ниже переопределяют дефолты из server/src/config.ts (§12.5).
+      MAX_PARTICIPANTS: '4'
+      MAX_MESSAGES: '200'
+      PING_INTERVAL: '10000'
+      PING_TIMEOUT: '5000'
+      # Q11: снаружи /health не отвечает; healthcheck ходит изнутри контейнера.
+      HEALTH_INTERNAL_ONLY: 'true'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    # Состояние в RAM: рестарт уничтожает все комнаты (§12.4, риск R3).
+    # Один инстанс — не «пока что», а требование архитектуры (§9.4).
+    deploy:
+      replicas: 1

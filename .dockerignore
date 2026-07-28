@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+coverage
+docs
+.git
+.gitignore
+client/certs
+*.log
+.env
+.env.*
+test-results
+playwright-report
+Dockerfile
+docker-compose.yml

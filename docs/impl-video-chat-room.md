@@ -66,20 +66,26 @@ graph LR
 
 ---
 
-- [ ] **1. Скаффолд монорепо и окружение разработки**
+- [x] **1. Скаффолд монорепо и окружение разработки** — выполнено, отчёт: `acceptance-1-video-chat-room.md`
   - Рабочее окружение, в котором `getUserMedia` доступен, а сервер раздаёт клиент с одного origin.
-  - [ ] 1.1 Инициализировать монорепо: npm workspaces `client` / `server` / `shared`, общий `tsconfig`, скрипты `dev` / `build` / `test`. (0.5 д)
+  - [x] 1.1 Инициализировать монорепо: npm workspaces `client` / `server` / `shared`, общий `tsconfig`, скрипты `dev` / `build` / `test`. (0.5 д)
     - _Requirements: —, Design: §2.2_
-  - [ ] 1.2 Настроить ESLint + Prettier, включая **обязательные правила-«стражи»**: `react/no-danger` (запрет `dangerouslySetInnerHTML`) и запрет обращений к `localStorage` / `sessionStorage` / `document.cookie`. (0.5 д)
+    - Результат: npm workspaces `shared`/`server`/`client`, `tsconfig.base.json` + конфиги воркспейсов (+ отдельные `tsconfig.build.json`, чтобы тесты не попадали в `dist`), скрипты `dev`/`build`/`test`/`typecheck`/`lint`/`verify`, vitest с алиасом на исходники `shared`.
+  - [x] 1.2 Настроить ESLint + Prettier, включая **обязательные правила-«стражи»**: `react/no-danger` (запрет `dangerouslySetInnerHTML`) и запрет обращений к `localStorage` / `sessionStorage` / `document.cookie`. (0.5 д)
     - _Requirements: ФТ-39, PRD §5 (без сохранения состояния на клиенте), Design: §5.4, §10.3_
-  - [ ] 1.3 Поднять Express: `GET /health` со счётчиками комнат/участников/uptime и SPA-fallback, отдающий `index.html` на любой путь (иначе прямой переход по `/:roomId` даст 404). (0.25 д)
+    - Результат: ESLint 9 flat + typed-linting + Prettier. Стражи проверены на пробном файле — срабатывают все: `react/no-danger`, `localStorage`, `sessionStorage`, `window.localStorage`, `document.cookie`, `indexedDB`, `no-console`, плюс сверх плана запрет `removeTrack` (риск R4).
+  - [x] 1.3 Поднять Express: `GET /health` со счётчиками комнат/участников/uptime и SPA-fallback, отдающий `index.html` на любой путь (иначе прямой переход по `/:roomId` даст 404). (0.25 д)
     - _Requirements: ФТ-4, Design: §6.1_
-  - [ ] 1.4 Поднять Socket.io-сервер: `transports: ['websocket']`, `maxHttpBufferSize: 100_000`, `pingInterval` / `pingTimeout` из env, логгер `pino` **без логирования текста сообщений**. (0.5 д)
+    - Результат: `GET /health` со счётчиками и uptime, доступ только изнутри сети (Q11); SPA-fallback отдаёт `index.html` на `/:roomId`, отсутствующий ассет получает 404, несобранный клиент — 503 с подсказкой. Счётчик комнат подключается к `RoomStore` в задаче 3.1.
+  - [x] 1.4 Поднять Socket.io-сервер: `transports: ['websocket']`, `maxHttpBufferSize: 100_000`, `pingInterval` / `pingTimeout` из env, логгер `pino` **без логирования текста сообщений**. (0.5 д)
     - _Requirements: ФТ-31, ФТ-35, Design: §4.1, §4.3, §10.5, §12.5_
-  - [ ] 1.5 Настроить Vite dev-server: HTTPS через `mkcert` и proxy `/socket.io` → `:3001` с `ws: true`, чтобы dev-конфигурация повторяла прод (один origin, без CORS). (0.5 д)
+    - Результат: `transports: ['websocket']`, `maxHttpBufferSize` 100 КБ, ping 10 000/5 000 из env, `serveClient: false`; pino с `redact` — текст сообщений и имена не попадают в логи (проверено тестом).
+  - [x] 1.5 Настроить Vite dev-server: HTTPS через `mkcert` и proxy `/socket.io` → `:3001` с `ws: true`, чтобы dev-конфигурация повторяла прод (один origin, без CORS). (0.5 д)
     - _Requirements: PRD §7 (HTTPS обязателен), Design: §12.1_
-  - [ ] 1.6 Собрать `Dockerfile` (multi-stage: build клиента → Node раздаёт статику) и `docker-compose.yml` для прод-подобного локального прогона. (0.5 д)
+    - Результат: HTTPS включается автоматически при наличии `client/certs/{key,cert}.pem` (mkcert), иначе http на localhost с подсказкой в консоли; proxy `/socket.io` с `ws: true` и `/health` на :3001. Проверено: 101 Switching Protocols и живое подключение socket.io через proxy.
+  - [x] 1.6 Собрать `Dockerfile` (multi-stage: build клиента → Node раздаёт статику) и `docker-compose.yml` для прод-подобного локального прогона. (0.5 д)
     - _Requirements: —, Design: §12.1, §12.2_
+    - Результат: multi-stage образ (deps → build → prod-deps → runtime), 216 МБ, пользователь `node`, HEALTHCHECK изнутри контейнера; `docker compose up -d` → статус `healthy`, порт публикуется только на `127.0.0.1` (иначе NAT docker обнуляет смысл проверки «/health только внутри сети»).
 
 ---
 

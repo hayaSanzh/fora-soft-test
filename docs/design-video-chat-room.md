@@ -3,13 +3,15 @@
 | | |
 |---|---|
 | **Документ** | Technical Design Document (TDD) |
-| **Версия** | 1.1 |
+| **Версия** | 1.2 |
 | **Основан на** | `prd-video-chat-room.md` v1.0 |
 | **Шаблон** | `prd-design.mdc` |
 | **feature-name** | `video-chat-room` |
 | **Статус** | Approved — открытые вопросы Q1–Q11 закрыты в группе 0 Implementation Plan (см. §14) |
 
 **Изменения в v1.1** (группа 0 Implementation Plan): §2.1 заполнен фактической сводкой репозитория (Q1); §14 переработан — Q1–Q4 закрыты решениями, Q5–Q11 зафиксированы дефолтами в `server/src/config.ts` и `client/src/config.ts`; §12.5 дополнен флагами, реализующими Q5, Q9–Q11. Архитектурных изменений нет.
+
+**Изменения в v1.2** (группа 1): §2.1 дополнен составом созданного каркаса и отклонениями от дерева §2.2; §12.5 дополнен флагом `TRUST_PROXY`. Архитектурных изменений нет.
 
 ---
 
@@ -64,7 +66,12 @@
 - правило `prd-design.mdc` (п. 2 «Исследовать текущий код») выполнено в полном объёме: читать было нечего, и это установленный факт, а не пробел в исследовании;
 - обратной совместимости, миграции и легаси-ограничений нет ни на одном слое.
 
-Появившиеся с тех пор файлы (задача IP 0.2): `server/src/config.ts`, `client/src/config.ts`, `.nvmrc` — дефолты Q5–Q11 и фиксация версии Node. Остальной каркас создаётся группой 1.
+Появившиеся с тех пор файлы:
+
+- **группа 0:** `server/src/config.ts`, `client/src/config.ts`, `.nvmrc` — дефолты Q5–Q11 и фиксация версии Node;
+- **группа 1:** каркас монорепо (npm workspaces `shared`/`server`/`client`, `tsconfig.base.json` + конфиги воркспейсов, ESLint 9 flat + Prettier, vitest), рабочий сервер (`server/src/index.ts`, `http/app.ts`, `http/internalAddress.ts`, `socket/createSocketServer.ts`, `logger.ts`), общий пакет (`shared/src/protocol.ts`), bootstrap клиента (`client/index.html`, `src/main.tsx`, `src/App.tsx`, `vite.config.ts`), `Dockerfile` + `docker-compose.yml`.
+
+Отклонения от дерева §2.2, принятые при реализации (структура уточнена, состав — нет): серверные модули разложены по подкаталогам `server/src/http/` и `server/src/socket/` вместо плоского `server/src/`; в `shared/` добавлен `protocol.ts` (транспортные константы и форма `/health`), а `events.ts` появится в группе 2; у `shared` и `server` есть отдельные `tsconfig.build.json`, чтобы тесты не попадали в `dist`.
 
 ### 2.2 Целевая структура репозитория (монорепо)
 
@@ -1071,6 +1078,7 @@ location /socket.io/ {
 | `SHUTDOWN_NOTICE` / `SHUTDOWN_GRACE_MS` | `true` / `2000` | системное сообщение при graceful shutdown (Q10, §12.4) |
 | `HEALTH_INTERNAL_ONLY` / `HEALTH_ALLOWLIST` | `true` / loopback + приватные диапазоны | доступность `/health` (Q11) |
 | `CORS_ORIGIN` | dev-адреса Vite | точный список origin'ов (§10.4) |
+| `TRUST_PROXY` | `loopback` | кому доверять `X-Forwarded-For`; влияет на определение «внутри сети» для `/health` |
 | `PORT` / `HOST` / `STATIC_DIR` / `LOG_LEVEL` | `3001` / `0.0.0.0` / `../client/dist` / `info` | параметры процесса |
 | `VITE_ICE_SERVERS` | Google STUN | подстановка TURN, если решение изменится |
 | `VITE_MAX_VIDEO_BITRATE` | не задан | включение потолка битрейта (Q5, §9.3) |
