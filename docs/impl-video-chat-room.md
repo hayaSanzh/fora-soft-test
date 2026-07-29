@@ -260,15 +260,17 @@ graph LR
 
 ---
 
-- [ ] **9. Клиент: `useRoomSession` — оркестратор**
+- [x] **9. Клиент: `useRoomSession` — оркестратор** — выполнено, отчёт: `acceptance-9-video-chat-room.md`
   - Единственное место, где socket-события связываются с `PeerManager` и React-состоянием. Зависимость: после 6, 7, 8.
-  - [ ] 9.1 Подписки: `peer:joined` → `createPeer` + оффер; `peer:left` → `closePeer` + удаление участника; `signal:*` → в `PeerManager`; `media:state` → в reducer; `chat:message` → в историю. (0.5 д)
-    - Частично выполнено группой 6: presence-часть (`peer:joined` / `peer:left` / `media:state` / `chat:message` → reducer) уже работает, для WebRTC-части готовы колбэки `onPeerJoined` / `onPeerLeft`. Остаётся `createPeer` / `closePeer` и релей `signal:*` в `PeerManager`.
+  - [x] 9.1 Подписки: `peer:joined` → `createPeer` + оффер; `peer:left` → `closePeer` + удаление участника; `signal:*` → в `PeerManager`; `media:state` → в reducer; `chat:message` → в историю. (0.5 д)
+    - Presence-часть была выполнена группой 6 (по итогам ручной приёмки). Здесь достроено остальное: `signal:offer` / `signal:answer` / `signal:ice` → `PeerManager`, `onJoined` → создание соединений с теми, кто уже в комнате (мы не инициатор), `peer:joined` → соединение с оффером, `peer:left` → закрытие соединения и освобождение потока.
     - _Requirements: ФТ-25, ФТ-26, ФТ-27, ФТ-31, Design: §4.6, §7.1, §7.4_
-  - [ ] 9.2 Хранить `MediaStream` и `RTCPeerConnection` **вне** React-состояния (в `useRef`-мапе), обновляя UI только при появлении/исчезновении пира — иначе видео мигает на каждое изменение дорожки. (0.25 д)
+  - [x] 9.2 Хранить `MediaStream` и `RTCPeerConnection` **вне** React-состояния (в `useRef`-мапе), обновляя UI только при появлении/исчезновении пира — иначе видео мигает на каждое изменение дорожки. (0.25 д)
     - _Requirements: ФТ-11, Design: §4.6, §5.4, §9.3_
-  - [ ] 9.3 Единый `teardown()` при выходе, `disconnect` и размонтировании: закрыть все PC, остановить дорожки, `socket.disconnect()`. `beforeunload` не нужен — socket.io сам присылает `disconnect`. (0.25 д)
+    - Результат: потоки и соединения живут в обычных полях оркестратора и в `useRef`; в состояние React попадает только presence и `peerConnectionStates`. Проверено тестом: 20 ICE-кандидатов не порождают ни одного действия reducer, а сериализованное состояние не содержит ни `MediaStream`, ни `RTCPeerConnection`.
+  - [x] 9.3 Единый `teardown()` при выходе, `disconnect` и размонтировании: закрыть все PC, остановить дорожки, `socket.disconnect()`. `beforeunload` не нужен — socket.io сам присылает `disconnect`. (0.25 д)
     - _Requirements: ФТ-27, ФТ-28, Design: §4.6, §8.2, R7_
+    - Результат: выход, обрыв и размонтирование ведут в одну функцию: закрыть соединения → остановить дорожки → разорвать сокет. Идемпотентна и безопасна до появления сокета (уход во время запроса разрешений). `beforeunload` не понадобился.
 
 ---
 

@@ -11,6 +11,7 @@
  */
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express, { type Express, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import { HEALTH_PATH, type HealthResponse } from '@video-chat/shared';
@@ -22,6 +23,26 @@ import { isInternalAddress } from './internalAddress.js';
 export interface RoomStats {
   rooms: number;
   participants: number;
+}
+
+/**
+ * Путь к собранному клиенту.
+ *
+ * ★ Считается **от расположения этого модуля**, а не от `process.cwd()`.
+ * Относительный путь от рабочего каталога — источник дефекта, найденного на
+ * ручной приёмке группы 9: `npm start` запускается из корня репозитория, и
+ * `'../client/dist'` уходил на уровень выше проекта. Расположение модуля
+ * известно всегда: и для `server/dist/http/app.js`, и для исходника в тестах
+ * путь до `client/dist` одинаков.
+ */
+const DEFAULT_STATIC_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../client/dist',
+);
+
+/** Явный `STATIC_DIR` резолвится от рабочего каталога — это осознанный выбор оператора. */
+export function resolveStaticDir(configured?: string | null): string {
+  return configured ? path.resolve(configured) : DEFAULT_STATIC_DIR;
 }
 
 export interface CreateAppOptions {
@@ -41,7 +62,7 @@ export function createApp(options: CreateAppOptions): Express {
     uptimeSeconds = () => process.uptime(),
     trustProxy = config.trustProxy,
   } = options;
-  const staticDir = path.resolve(options.staticDir ?? config.staticDir);
+  const staticDir = resolveStaticDir(options.staticDir ?? config.staticDir);
   const indexHtml = path.join(staticDir, 'index.html');
 
   /**

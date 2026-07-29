@@ -14,7 +14,13 @@
  * - `INVALID_ROOM_ID` означает битую ссылку → возврат на стартовый экран.
  */
 import type { Dispatch } from 'react';
-import type { JoinPayload, MediaState, Participant } from '@video-chat/shared';
+import type {
+  IceCandidateData,
+  JoinPayload,
+  MediaState,
+  Participant,
+  SdpDescription,
+} from '@video-chat/shared';
 import type { RoomAction } from '../state/roomReducer';
 import { createSocket, joinRoom, type ClientSocket } from './socket';
 
@@ -34,6 +40,18 @@ export interface RoomConnectionDeps {
   onPeerJoined?: (participant: Participant) => void;
   onPeerLeft?: (participantId: string) => void;
   /**
+   * Вход состоялся: `selfId` и список уже присутствующих участников.
+   *
+   * Нужен оркестратору (группа 9): по этому списку создаются соединения, в
+   * которых мы **не** инициатор — новичок только отвечает на офферы (антиглэр,
+   * TDD §4.5 нюанс 2).
+   */
+  onJoined?: (selfId: string, participants: Participant[]) => void;
+  /** Входящий сигналинг: `from` уже подставлен сервером (TDD §4.3). */
+  onOffer?: (from: string, sdp: SdpDescription) => void;
+  onAnswer?: (from: string, sdp: SdpDescription) => void;
+  onIce?: (from: string, candidate: IceCandidateData) => void;
+  /**
    * Полный teardown медиа: закрыть все `RTCPeerConnection` и остановить
    * дорожки. Реализация приходит из групп 7–9; здесь важно, что она
    * вызывается **на любом обрыве**, иначе камера продолжает работать после
@@ -47,6 +65,10 @@ export interface RoomConnectionDeps {
 
 export interface RoomConnection {
   socket: ClientSocket;
+  /** Исходящий сигналинг. `from` подставит сервер, здесь только адресат. */
+  sendOffer: (to: string, sdp: SdpDescription) => void;
+  sendAnswer: (to: string, sdp: SdpDescription) => void;
+  sendIce: (to: string, candidate: IceCandidateData) => void;
   /**
    * Разослать своё состояние устройств (ФТ-15…18).
    *
@@ -126,6 +148,13 @@ export function startRoomConnection(deps: RoomConnectionDeps): RoomConnection {
     dispatch({ type: 'CHAT_MESSAGE', item });
   });
 
+  // ── Сигналинг: релей в PeerManager (задача 9.1) ─────────────────────────────
+  // Этот слой ничего не решает про WebRTC — он только доставляет payload'ы
+  // оркестратору, который знает про соединения (TDD §3.2: правило зависимостей).
+  socket.on('signal:offer', ({ from, sdp }) => deps.onOffer?.(from, sdp));
+  socket.on('signal:answer', ({ from, sdp }) => deps.onAnswer?.(from, sdp));
+  socket.on('signal:ice', ({ from, candidate }) => deps.onIce?.(from, candidate));
+
   // ── 6.2 вход в комнату ─────────────────────────────────────────────────────
   socket.on('connect', () => {
     const payload: JoinPayload = { roomId, name, media };
@@ -148,6 +177,8 @@ export function startRoomConnection(deps: RoomConnectionDeps): RoomConnection {
           participants: ack.room.participants,
           messages: ack.room.messages,
         });
+        // Оркестратор создаёт соединения с теми, кто уже в комнате.
+        deps.onJoined?.(ack.self.id, ack.room.participants);
         return;
       }
 
@@ -177,6 +208,18 @@ export function startRoomConnection(deps: RoomConnectionDeps): RoomConnection {
 
   return {
     socket,
+    sendOffer: (to, sdp) => {
+      if (closed || !socket.connected) return;
+      socket.emit('signal:offer', { to, sdp });
+    },
+    sendAnswer: (to, sdp) => {
+      if (closed || !socket.connected) return;
+      socket.emit('signal:answer', { to, sdp });
+    },
+    sendIce: (to, candidate) => {
+      if (closed || !socket.connected) return;
+      socket.emit('signal:ice', { to, candidate });
+    },
     setMediaState: (next) => {
       if (closed || !socket.connected) return;
       socket.emit('media:state', next);

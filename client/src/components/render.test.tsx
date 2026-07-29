@@ -11,7 +11,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { JoinScreen, shouldShowNameHint } from './JoinScreen';
-import { describeParticipant, RoomPage } from './RoomPage';
+import { RoomPage } from './RoomPage';
+import { ParticipantTile } from './ParticipantTile';
 import { UnsupportedScreen } from './overlays/UnsupportedScreen';
 import { clearPendingJoin, setPendingJoin } from '../lib/pendingJoin';
 import { strings } from '../strings';
@@ -207,39 +208,104 @@ describe('★ регрессия: подсказка не должна ждат�
   });
 });
 
-describe('★ регрессия: состояние устройств участника видно в списке (ФТ-16, ФТ-18)', () => {
-  const peer = (media: { audio: boolean; video: boolean }) => ({
+describe('★ регрессия: плитка участника (ФТ-16, ФТ-18, риск R5)', () => {
+  const peer = (media: { audio: boolean; video: boolean }, name = 'Борис') => ({
     id: 'peer-1',
-    name: 'Борис',
+    name,
     media,
     joinedAt: 1_769_000_000_000,
   });
-
-  it('оба устройства включены — пометок нет', () => {
-    expect(describeParticipant(peer({ audio: true, video: true }), false)).toBe('Борис');
-  });
-
-  it('★ микрофон выключен → «Микрофон выключен» (ФТ-16)', () => {
-    expect(describeParticipant(peer({ audio: false, video: true }), false)).toBe(
-      `Борис · ${strings.a11y.micMuted}`,
+  const render = (participant: ReturnType<typeof peer>, isSelf = false) =>
+    renderToStaticMarkup(
+      <ParticipantTile participant={participant} isSelf={isSelf} attachVideo={() => undefined} />,
     );
+
+  it('★ <video> смонтирован ДАЖЕ при выключенной камере (риск R5)', () => {
+    // Условный рендеринг элемента убил бы аудио пира — самая частая регрессия.
+    const html = render(peer({ audio: true, video: false }));
+
+    expect(html).toContain('<video');
   });
 
-  it('★ камера выключена → «Видео выключено» (ФТ-18)', () => {
-    expect(describeParticipant(peer({ audio: true, video: false }), false)).toBe(
-      `Борис · ${strings.a11y.noVideo}`,
+  it('★ камера выключена → заглушка-силуэт с именем ПОВЕРХ видео (ФТ-18)', () => {
+    // Дефект группы 9: без оверлея у собеседника оставался последний кадр,
+    // потому что replaceTrack(null) переводит дорожку в muted, но не удаляет её.
+    const html = render(peer({ audio: true, video: false }));
+
+    expect(html).toContain('tile__placeholder');
+    expect(html).toContain('tile__silhouette');
+    // Имя видно на заглушке (ФТ-18 требует силуэт «с именем участника»).
+    expect(html).toContain('Борис');
+    // Порядок в разметке: сначала video, потом оверлей.
+    expect(html.indexOf('<video')).toBeLessThan(html.indexOf('tile__placeholder'));
+  });
+
+  it('★ камера включена → заглушки нет', () => {
+    const html = render(peer({ audio: true, video: true }));
+
+    expect(html).not.toContain('tile__placeholder');
+    expect(html).toContain('<video');
+  });
+
+  it('★ микрофон выключен → иконка перечёркнутого микрофона (ФТ-16)', () => {
+    const html = render(peer({ audio: false, video: true }));
+
+    expect(html).toContain('tile__mic');
+    expect(html).toContain(strings.a11y.micMuted);
+  });
+
+  it('микрофон включён → иконки нет', () => {
+    expect(render(peer({ audio: true, video: true }))).not.toContain('tile__mic');
+  });
+
+  it('★ self-view заглушён, плитка пира — нет (ФТ-18: иначе эхо)', () => {
+    expect(render(peer({ audio: true, video: true }), true)).toMatch(/<video[^>]*muted/);
+    expect(render(peer({ audio: true, video: true }), false)).not.toMatch(/<video[^>]*muted/);
+  });
+
+  it('★ имя выводится текстом: HTML не превращается в разметку (ФТ-39)', () => {
+    const html = render(peer({ audio: true, video: false }, '<img src=x onerror=alert(1)>'));
+
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('внутренний id участника в разметку не попадает (ФТ-30)', () => {
+    expect(render(peer({ audio: true, video: true }))).not.toContain('peer-1');
+  });
+
+  it('состояние соединения показывается только для пиров (Q9, ФТ-34)', () => {
+    const failed = renderToStaticMarkup(
+      <ParticipantTile
+        participant={peer({ audio: true, video: true })}
+        isSelf={false}
+        connectionState="failed"
+        attachVideo={() => undefined}
+      />,
     );
+    expect(failed).toContain(strings.errors.peerFailed);
+
+    const own = renderToStaticMarkup(
+      <ParticipantTile
+        participant={peer({ audio: true, video: true })}
+        isSelf
+        connectionState="failed"
+        attachVideo={() => undefined}
+      />,
+    );
+    expect(own).not.toContain(strings.errors.peerFailed);
   });
 
-  it('оба выключены — обе пометки', () => {
-    const text = describeParticipant(peer({ audio: false, video: false }), false);
-    expect(text).toContain(strings.a11y.micMuted);
-    expect(text).toContain(strings.a11y.noVideo);
-  });
-
-  it('себя видно как «(вы)», внутренний id в подписи не участвует (ФТ-30)', () => {
-    const text = describeParticipant(peer({ audio: true, video: true }), true);
-    expect(text).toBe(`Борис (${strings.room.you})`);
-    expect(text).not.toContain('peer-1');
+  it('состояние connected подписи не добавляет', () => {
+    const html = renderToStaticMarkup(
+      <ParticipantTile
+        participant={peer({ audio: true, video: true })}
+        isSelf={false}
+        connectionState="connected"
+        attachVideo={() => undefined}
+      />,
+    );
+    expect(html).not.toContain(strings.errors.peerConnecting);
+    expect(html).not.toContain(strings.errors.peerFailed);
   });
 });

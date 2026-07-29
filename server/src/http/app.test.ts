@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { HEALTH_PATH } from '@video-chat/shared';
 import { RoomStore } from '../RoomStore.js';
-import { createApp, type RoomStats } from './app.js';
+import { createApp, resolveStaticDir, type RoomStats } from './app.js';
 
 const INDEX_HTML = '<!doctype html><title>Видеочат</title><div id="root"></div>';
 
@@ -141,6 +141,36 @@ describe('createApp: /health поверх RoomStore (задачи 1.3 + 3.1)', (
       rooms: 1,
       participants: 2,
     });
+  });
+});
+
+describe('★ регрессия: путь к статике не зависит от рабочего каталога', () => {
+  it('★ дефолтный путь абсолютный и указывает внутрь проекта, а не выше него', () => {
+    const resolved = resolveStaticDir(null);
+
+    expect(path.isAbsolute(resolved)).toBe(true);
+    expect(resolved.endsWith(path.join('client', 'dist'))).toBe(true);
+    // Ключевое: путь построен от расположения модуля, поэтому он не меняется
+    // при запуске из другого каталога. Дефект группы 9: относительный дефолт
+    // `../client/dist` от корня репозитория уходил на уровень ВЫШЕ проекта.
+    const repoRoot = path.resolve(import.meta.dirname, '../../..');
+    expect(resolved).toBe(path.join(repoRoot, 'client', 'dist'));
+  });
+
+  it('дефолт одинаков при любом process.cwd()', () => {
+    const original = process.cwd();
+    const fromRoot = resolveStaticDir(null);
+    try {
+      process.chdir(tmpdir());
+      expect(resolveStaticDir(null)).toBe(fromRoot);
+    } finally {
+      process.chdir(original);
+    }
+  });
+
+  it('явный STATIC_DIR по-прежнему резолвится от рабочего каталога — это выбор оператора', () => {
+    expect(resolveStaticDir('./client/dist')).toBe(path.resolve('./client/dist'));
+    expect(resolveStaticDir('/opt/app/client/dist')).toBe('/opt/app/client/dist');
   });
 });
 
