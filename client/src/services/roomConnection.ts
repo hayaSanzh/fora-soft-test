@@ -15,6 +15,7 @@
  */
 import type { Dispatch } from 'react';
 import type {
+  ChatAck,
   IceCandidateData,
   JoinPayload,
   MediaState,
@@ -76,6 +77,14 @@ export interface RoomConnection {
    * достоверно узнать «камера выключена» нельзя (TDD §4.4).
    */
   setMediaState: (media: MediaState) => void;
+  /**
+   * Отправка сообщения в чат (задача 10.6, ФТ-21).
+   *
+   * Ответ приходит ack'ом, а само сообщение — событием `chat:message` **всем,
+   * включая автора**. Локального оптимистичного дубля нет, поэтому порядок
+   * сообщений у всех участников одинаковый и определяется сервером (TDD §7.5).
+   */
+  sendChatMessage: (text: string) => Promise<ChatAck>;
   /** Осознанный выход участника: сообщаем серверу и закрываем соединение. */
   leave: () => void;
   /** Освобождение ресурсов при размонтировании. Идемпотентно. */
@@ -223,6 +232,19 @@ export function startRoomConnection(deps: RoomConnectionDeps): RoomConnection {
     setMediaState: (next) => {
       if (closed || !socket.connected) return;
       socket.emit('media:state', next);
+    },
+    sendChatMessage: async (text) => {
+      if (closed || !socket.connected) return { ok: false, error: 'NOT_IN_ROOM' };
+      try {
+        // Таймаут обязателен: без него поле ввода залипло бы в состоянии
+        // «отправляется» при пропаже сети.
+        return (await socket
+          .timeout(deps.timeoutMs ?? 8_000)
+          .emitWithAck('chat:message', { text })) as ChatAck;
+      } catch {
+        // Молчание сервера для пользователя равносильно «вы не в комнате».
+        return { ok: false, error: 'NOT_IN_ROOM' };
+      }
     },
     leave: () => {
       if (closed) return;

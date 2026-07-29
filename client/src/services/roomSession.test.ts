@@ -54,6 +54,13 @@ async function startStub(maxParticipants = 4): Promise<Stub> {
   const participants = new Map<string, Participant>();
   const messages: ChatItem[] = [];
   let seq = 0;
+  /**
+   * Счётчик id сообщений — общий на сервер, как `nanoid` в реальной реализации.
+   * Если сделать его локальным для соединения, разные участники начнут выдавать
+   * одинаковые id, и клиент отбросит сообщения дедупликацией — на этом мой
+   * первый вариант стенда и упал.
+   */
+  let messageSeq = 0;
 
   io.on('connection', (socket: ServerSocket<ClientToServerEvents, ServerToClientEvents>) => {
     socket.on('room:join', (payload, ack) => {
@@ -90,6 +97,26 @@ async function startStub(maxParticipants = 4): Promise<Stub> {
     socket.on('signal:ice', ({ to, candidate }) =>
       io.to(to).emit('signal:ice', { from: socket.id, candidate }),
     );
+
+    socket.on('chat:message', ({ text }, ack) => {
+      const participant = participants.get(socket.id);
+      if (!participant) {
+        ack({ ok: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+      const item: ChatItem = {
+        type: 'user',
+        id: `msg-${++messageSeq}`,
+        authorId: socket.id,
+        authorName: participant.name,
+        text,
+        ts: 1_769_000_000_000 + messageSeq,
+      };
+      messages.push(item);
+      // Всем, включая автора (TDD §7.5): порядок определяет сервер.
+      io.emit('chat:message', item);
+      ack({ ok: true, id: item.id });
+    });
 
     socket.on('media:state', (media: MediaState) => {
       const participant = participants.get(socket.id);
@@ -561,5 +588,80 @@ describe('устойчивость', () => {
     await new Promise((r) => setTimeout(r, 300));
     session.teardown();
     expect(onInvalid).not.toHaveBeenCalled();
+  });
+});
+
+describe('★ чат через сессию (задача 10.6, ФТ-21…24)', () => {
+  it('★ сообщение доходит до собеседника и попадает в историю обоих', async () => {
+    const stub = await startStub();
+    stubs.push(stub);
+    const anya = join(stub, 'Аня');
+    await inRoom(anya);
+    const boris = join(stub, 'Борис');
+    await inRoom(boris);
+
+    const ack = await anya.session.sendChatMessage('привет');
+
+    expect(ack.ok).toBe(true);
+    await waitUntil(
+      () => boris.state().messages.some((m) => m.type === 'user' && m.text === 'привет'),
+      'Борис получил сообщение',
+    );
+    // ★ Автор тоже получает своё сообщение событием — без локального дубля.
+    await waitUntil(
+      () => anya.state().messages.filter((m) => m.type === 'user').length === 1,
+      'автор получил своё сообщение ровно один раз',
+    );
+  });
+
+  it('★ порядок сообщений определяется сервером и одинаков у всех', async () => {
+    const stub = await startStub();
+    stubs.push(stub);
+    const anya = join(stub, 'Аня');
+    await inRoom(anya);
+    const boris = join(stub, 'Борис');
+    await inRoom(boris);
+
+    await anya.session.sendChatMessage('первое');
+    await boris.session.sendChatMessage('второе');
+    await anya.session.sendChatMessage('третье');
+
+    const texts = (member: typeof anya) =>
+      member
+        .state()
+        .messages.filter((m) => m.type === 'user')
+        .map((m) => (m.type === 'user' ? m.text : ''));
+    await waitUntil(() => texts(anya).length === 3 && texts(boris).length === 3, 'все получили 3');
+
+    expect(texts(anya)).toEqual(['первое', 'второе', 'третье']);
+    expect(texts(boris)).toEqual(texts(anya));
+  });
+
+  it('★ XSS-проба доезжает как текст, без изменений (ФТ-39)', async () => {
+    const stub = await startStub();
+    stubs.push(stub);
+    const anya = join(stub, 'Аня');
+    await inRoom(anya);
+    const boris = join(stub, 'Борис');
+    await inRoom(boris);
+    const xss = '<img src=x onerror=alert(1)>';
+
+    await anya.session.sendChatMessage(xss);
+
+    await waitUntil(
+      () => boris.state().messages.some((m) => m.type === 'user' && m.text === xss),
+      'текст доехал как есть',
+    );
+  });
+
+  it('отправка без соединения не бросает исключение', async () => {
+    const stub = await startStub();
+    stubs.push(stub);
+    const anya = join(stub, 'Аня');
+
+    // Сокета ещё нет: устройства только запрашиваются.
+    const ack = await anya.session.sendChatMessage('раньше времени');
+
+    expect(ack).toEqual({ ok: false, error: 'NOT_IN_ROOM' });
   });
 });

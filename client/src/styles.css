@@ -151,23 +151,94 @@ code {
   font-weight: 600;
 }
 
-/* Временная комната: сетка плиток и тумблеры (задача 9).
-   Финальный вид — VideoGrid / VideoTile / Controls, группа 10. */
+/*
+ * Комната: сетка плиток и боковая панель (задачи 10.3, 10.4, 10.6, 10.8).
+ *
+ * Целевые экраны — десктоп от 1024px (PRD §5: мобильной адаптации нет), но
+ * раскладка не ломается и на меньшей ширине: боковая панель уходит под сетку.
+ * Дизайн оценивается по критерию «работает и понятно» (PRD §6).
+ */
 .room {
   width: 100%;
-  max-width: 1024px;
+  max-width: 1440px;
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-areas:
+    'header header'
+    'stage side';
+  gap: 20px;
+  align-items: start;
 }
 
+.room__header {
+  grid-area: header;
+}
+
+.room__title {
+  margin: 0;
+  font-size: 22px;
+}
+
+.room__stage {
+  grid-area: stage;
+  min-width: 0;
+}
+
+/*
+ * Рамка оверлея автозапуска (задача 11.5).
+ * ★ Обёрнута только сетка, а не вся сцена: оверлей с `inset: 0` перехватывает
+ * клики, и накрой он сцену целиком — заблокировал бы «Выйти» и тумблеры.
+ */
+.stage__video {
+  position: relative;
+}
+
+.room__side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Ниже 1024px боковая панель встаёт под видео — вне требований, но не ломается. */
+@media (max-width: 1023px) {
+  .room {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'header'
+      'stage'
+      'side';
+  }
+}
+
+/*
+ * ★ Раскладки задаются числом участников, а не auto-fit: при трёх участниках
+ * auto-fit дал бы «2 + 1 растянутая на всю ширину», а требуется 2×2 (ФТ-11).
+ */
 .grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  margin: 16px 0;
+}
+
+.grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.grid--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid--quad {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .tile {
+  display: flex;
+  flex-direction: column;
   margin: 0;
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -175,14 +246,19 @@ code {
 }
 
 /*
- * ★ Аспект-отношение принадлежит КОНТЕЙНЕРУ, а видео и оверлеи заполняют его
- * абсолютным позиционированием от одной и той же рамки.
+ * ★ Размер плитки задаёт КОНТЕЙНЕР, а не поток. Это три требования в одном
+ * правиле, и каждое было нарушено регрессией группы 10:
  *
- * Если высоту задаёт сам <video> через aspect-ratio, а оверлей позиционируется
- * от контейнера, при дробной высоте браузер округляет их по-разному — и снизу
- * остаётся подпиксельная полоска, через которую просвечивает последний кадр
- * замершего видео (дефект найден на ручной приёмке группы 9). `overflow: hidden`
- * дополнительно отсекает любое подпиксельное просачивание.
+ * 1. `aspect-ratio` на контейнере. Без него высоту диктует собственный размер
+ *    <video>, а WebRTC поднимает разрешение ступенями в первые секунды связи —
+ *    плитка «сама растёт» каждые несколько секунд, страница уезжает вниз.
+ * 2. `position: relative`. Оверлеи внутри позиционируются `absolute; inset: 0`.
+ *    Без позиционированного родителя они считаются от НАЧАЛЬНОГО КОНТЕЙНЕРА,
+ *    то есть заглушка-силуэт растягивается на всю страницу.
+ * 3. `overflow: hidden` и аспект именно на контейнере, а не на <video>: если
+ *    высоту задаёт видео, а оверлей — контейнер, при дробной высоте браузер
+ *    округляет их по-разному и снизу остаётся подпиксельная полоска, через
+ *    которую просвечивает последний кадр (дефект приёмки группы 9).
  */
 .tile__media {
   position: relative;
@@ -191,6 +267,21 @@ code {
   background: #000;
 }
 
+/*
+ * Ограничение по высоте окна: сетка не должна выталкивать заголовок и элементы
+ * управления за экран. Аспект даёт высоту от ширины, а этот предел — от экрана;
+ * побеждает меньший, поэтому плитки всегда видны целиком без прокрутки.
+ */
+.grid--single .tile__media,
+.grid--pair .tile__media {
+  max-height: 56vh;
+}
+
+.grid--quad .tile__media {
+  max-height: 34vh;
+}
+
+/* ★ Видео заполняет контейнер и НИКОГДА не влияет на раскладку (см. выше). */
 .tile__video {
   position: absolute;
   inset: 0;
@@ -203,18 +294,9 @@ code {
 .tile__caption {
   padding: 8px 10px;
   font-size: 14px;
-}
-
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.events {
-  color: var(--muted);
-  font-size: 14px;
+  /* Длинное имя не должно растягивать плитку: лимит имени 30 символов, но
+     без переноса узкая колонка всё равно разъехалась бы. */
+  overflow-wrap: anywhere;
 }
 
 /* Оверлеи плитки: заглушка-силуэт и иконка микрофона (ФТ-16, ФТ-18).
@@ -258,4 +340,236 @@ code {
 .tile__mic svg {
   width: 100%;
   height: 100%;
+}
+
+/* Управление: состояние тумблера видно и цветом, и подписью (задача 10.4). */
+.button--on {
+  border-color: var(--accent);
+  color: var(--accent-text);
+  background: var(--accent);
+}
+
+.button--off {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.button--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.hint--ok {
+  color: var(--accent);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+/* Список участников (задача 10.8). */
+.participants,
+.chat {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.participants__heading,
+.chat__heading {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.participants__list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.participants__item {
+  margin-bottom: 4px;
+}
+
+.participants__self,
+.participants__flag {
+  color: var(--muted);
+}
+
+/* Чат (задачи 10.6, 10.7). */
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat__list {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  /* Фиксированная высота с прокруткой: иначе автопрокрутке некуда работать. */
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.chat__item {
+  margin-bottom: 6px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.chat__item--system {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.chat__time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat__author {
+  font-weight: 600;
+}
+
+/* Текст сообщения: без автолинковки (TDD §10.3), но с переносом длинных слов. */
+.chat__text {
+  overflow-wrap: anywhere;
+}
+
+.chat__form {
+  display: flex;
+  gap: 8px;
+}
+
+.chat__form .input {
+  min-width: 0;
+}
+
+.chat__form .button {
+  width: auto;
+  white-space: nowrap;
+}
+
+.chat__footer {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 6px;
+  min-height: 20px;
+}
+
+/*
+ * Баннер ошибки устройств (задача 11.4, ФТ-33).
+ * ★ В потоке страницы, а не оверлеем: он не должен ничего перекрывать —
+ * пользователь остаётся в звонке и продолжает видеть собеседников.
+ */
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 12px;
+  margin: 12px 0;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.banner--error {
+  border-color: var(--danger);
+}
+
+.banner__text {
+  min-width: 0;
+}
+
+.banner__dismiss {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.banner__dismiss:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/*
+ * Оверлей автозапуска (задача 11.5, ФТ-37).
+ * ★ Накрывает сетку целиком: без звука звонок выглядит работающим, и подсказку
+ * где-то внизу пользователь не заметит.
+ */
+.gate {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(20, 22, 26, 0.82);
+  border-radius: var(--radius);
+}
+
+.gate__card {
+  max-width: 420px;
+  padding: 20px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+
+.gate__text {
+  margin: 0 0 14px;
+}
+
+.gate__button {
+  width: auto;
+}
+
+/*
+ * Состояние соединения на плитке (задача 11.6, ФТ-34, риск R1).
+ * Плашка поверх видео: при `failed` плитка иначе выглядела бы просто чёрной.
+ */
+.tile__status {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(20, 22, 26, 0.75);
+  border-radius: 999px;
+}
+
+.tile__status--failed {
+  color: var(--accent-text);
+  background: var(--danger);
+}
+
+/* Подпись для скринридера без визуального шума. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

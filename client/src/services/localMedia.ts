@@ -42,9 +42,24 @@ export interface LocalMediaOptions extends LocalMediaCallbacks {
   mediaDevices?: MediaDevices;
 }
 
-/** Приводит ошибку `getUserMedia` к коду для UI (TDD §8.1). */
+/**
+ * Приводит ошибку `getUserMedia` к коду для UI (TDD §8.1).
+ *
+ * ★ Имя читается у любого объекта, а не только у `instanceof Error`. Браузер
+ * бросает `DOMException`, и хотя в текущих движках он наследует `Error`, это
+ * деталь реализации, а не требование WebIDL. Опора на `instanceof` дала бы
+ * `String(error)` вида `'NotAllowedError: Permission denied'`, который не
+ * совпадает ни с одной ветвью — и самая частая ошибка, отказ в доступе, молча
+ * превратилась бы в безликое «Не удалось получить доступ» вместо подсказки
+ * «разрешите доступ в настройках браузера» (ФТ-33).
+ */
 export function toMediaErrorKind(error: unknown): MediaErrorKind {
-  const name = error instanceof Error ? error.name : String(error);
+  const name =
+    typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { name?: unknown }).name === 'string'
+      ? (error as { name: string }).name
+      : String(error);
   switch (name) {
     case 'NotAllowedError':
     case 'PermissionDeniedError': // старое имя в некоторых сборках

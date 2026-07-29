@@ -1,0 +1,22 @@
+// Проект для E2E (задача IP 13.1).
+//
+// Нужен по двум причинам: типизированные правила ESLint требуют, чтобы файл
+// принадлежал какому-то проекту, а `tsc --noEmit -p e2e` ловит ошибки типов в
+// самих тестах — иначе они обнаруживались бы только на прогоне.
+//
+// `lib: DOM` обязателен: код внутри `page.evaluate()` исполняется в браузере и
+// обращается к `HTMLVideoElement`, `RTCPeerConnection`, `navigator`.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"]
+}

@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { JoinScreen, shouldShowNameHint } from './JoinScreen';
 import { RoomPage } from './RoomPage';
-import { ParticipantTile } from './ParticipantTile';
+import { VideoTile } from './VideoTile';
 import { UnsupportedScreen } from './overlays/UnsupportedScreen';
 import { clearPendingJoin, setPendingJoin } from '../lib/pendingJoin';
 import { strings } from '../strings';
@@ -217,7 +217,7 @@ describe('★ регрессия: плитка участника (ФТ-16, ФТ
   });
   const render = (participant: ReturnType<typeof peer>, isSelf = false) =>
     renderToStaticMarkup(
-      <ParticipantTile participant={participant} isSelf={isSelf} attachVideo={() => undefined} />,
+      <VideoTile participant={participant} isSelf={isSelf} attachVideo={() => undefined} />,
     );
 
   it('★ <video> смонтирован ДАЖЕ при выключенной камере (риск R5)', () => {
@@ -276,7 +276,7 @@ describe('★ регрессия: плитка участника (ФТ-16, ФТ
 
   it('состояние соединения показывается только для пиров (Q9, ФТ-34)', () => {
     const failed = renderToStaticMarkup(
-      <ParticipantTile
+      <VideoTile
         participant={peer({ audio: true, video: true })}
         isSelf={false}
         connectionState="failed"
@@ -286,7 +286,7 @@ describe('★ регрессия: плитка участника (ФТ-16, ФТ
     expect(failed).toContain(strings.errors.peerFailed);
 
     const own = renderToStaticMarkup(
-      <ParticipantTile
+      <VideoTile
         participant={peer({ audio: true, video: true })}
         isSelf
         connectionState="failed"
@@ -298,7 +298,7 @@ describe('★ регрессия: плитка участника (ФТ-16, ФТ
 
   it('состояние connected подписи не добавляет', () => {
     const html = renderToStaticMarkup(
-      <ParticipantTile
+      <VideoTile
         participant={peer({ audio: true, video: true })}
         isSelf={false}
         connectionState="connected"

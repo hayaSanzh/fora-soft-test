@@ -123,6 +123,39 @@ describe('toMediaErrorKind (задача 7.2, TDD §8.1)', () => {
   ])('%s → %s', (name, expected) => {
     expect(toMediaErrorKind(domError(name))).toBe(expected);
   });
+
+  /**
+   * ★ Регрессия, найденная пробой E2E (группа 13).
+   *
+   * Браузер бросает `DOMException`, а не `Error`. В текущих движках он наследует
+   * `Error`, но это деталь реализации: раньше классификатор опирался на
+   * `instanceof Error`, и любая реализация без такого наследования уводила самую
+   * частую ошибку — отказ в доступе — в безликое «Unknown».
+   */
+  it('★ имя читается у DOMException, не наследующего Error', () => {
+    // Объект с прототипом без Error в цепочке — как DOMException по WebIDL.
+    const exception = Object.create({ constructor: { name: 'DOMException' } }) as {
+      name: string;
+      message: string;
+    };
+    exception.name = 'NotAllowedError';
+    exception.message = 'Permission denied';
+
+    expect(exception instanceof Error).toBe(false);
+    expect(toMediaErrorKind(exception)).toBe('NotAllowedError');
+  });
+
+  it('★ у объекта без поля name — Unknown, а не падение', () => {
+    expect(toMediaErrorKind({})).toBe('Unknown');
+    expect(toMediaErrorKind(null)).toBe('Unknown');
+    expect(toMediaErrorKind('NotAllowedError: Permission denied')).toBe('Unknown');
+  });
+
+  it('NotSupportedError браузера трактуется как Unknown (проверено в headless Chromium)', () => {
+    // Так отказывает захват в headless-сборке без фейкового UI: это не отказ
+    // пользователя, а недоступность подсистемы. Общий текст здесь уместен.
+    expect(toMediaErrorKind(domError('NotSupportedError'))).toBe('Unknown');
+  });
 });
 
 describe('acquire: раздельные вызовы getUserMedia (задача 7.1, ФТ-13, ФТ-14)', () => {

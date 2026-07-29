@@ -1,18 +1,19 @@
 /**
- * Экран комнаты (задачи IP 5.5, 6.2, 9; финальный UI — группа 10).
+ * Экран комнаты (задачи IP 5.5, 6.2, 9, 10; экраны ошибок — группа 11).
  *
  * Страница читает `roomId`, запрашивает имя, ведёт состояние по машине TDD §3.3
  * и отдаёт оркестратору всё, что связано с медиа и сигналингом.
  *
- * Оформление намеренно минимальное: сетка 2×2, заглушка-силуэт, иконка
- * перечёркнутого микрофона, панель чата и экраны ошибок в финальном виде —
- * задачи групп 10 и 11. Здесь ровно столько, чтобы звонок был проверяем.
+ * ★ Каждому состоянию машины соответствует свой компонент из `overlays/`:
+ * требование PRD — пользователь никогда не должен упираться в белый экран.
+ * `default` в `switch` намеренно не используется как «свалка»: разбираются все
+ * состояния, а недостижимые здесь (`checkingSupport`, `unsupported`) обработаны
+ * до монтирования App в `main.tsx`.
  */
 import { useReducer } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { isSystemChatItem, roomIdSchema, validate } from '@video-chat/shared';
+import { useNavigate, useParams } from 'react-router-dom';
+import { roomIdSchema, validate } from '@video-chat/shared';
 import { useRoomSession } from '../hooks/useRoomSession';
-import { formatTime } from '../lib/format';
 import { clearPendingJoin, readPendingJoin } from '../lib/pendingJoin';
 import { checkName } from '../lib/validation';
 import {
@@ -22,26 +23,19 @@ import {
   type RoomState,
 } from '../state/roomReducer';
 import { strings } from '../strings';
+import { ChatPanel } from './ChatPanel';
+import { Controls } from './Controls';
 import { JoinScreen } from './JoinScreen';
-import { ParticipantTile } from './ParticipantTile';
-
-/** Текст баннера по коду ошибки медиа (TDD §8.1); финальный вид — задача 11.4. */
-function mediaErrorText(kind: NonNullable<RoomState['mediaError']>): string {
-  switch (kind) {
-    case 'NotAllowedError':
-      return strings.errors.mediaNotAllowed;
-    case 'NotFoundError':
-      return strings.errors.mediaNotFound;
-    case 'NotReadableError':
-      return strings.errors.mediaNotReadable;
-    case 'OverconstrainedError':
-      return strings.errors.mediaOverconstrained;
-    case 'DeviceLost':
-      return strings.errors.mediaDeviceLost;
-    default:
-      return strings.errors.mediaUnknown;
-  }
-}
+import { ParticipantList } from './ParticipantList';
+import { VideoGrid } from './VideoGrid';
+import { InvalidLinkScreen } from './overlays/InvalidLinkScreen';
+import { LeftScreen } from './overlays/LeftScreen';
+import { MediaErrorBanner } from './overlays/MediaErrorBanner';
+import { RoomFullScreen } from './overlays/RoomFullScreen';
+import { ServerErrorScreen } from './overlays/ServerErrorScreen';
+import { StatusScreen } from './overlays/StatusScreen';
+import { UnmuteAudioGate } from './overlays/UnmuteAudioGate';
+import { UnsupportedScreen } from './overlays/UnsupportedScreen';
 
 /**
  * Имя приходит из памяти модуля (см. `pendingJoin.ts`) — тогда спрашивать его
@@ -81,24 +75,13 @@ export function RoomPage() {
     },
   });
 
-  if (!validRoomId.ok) {
-    return (
-      <main className="screen screen--center">
-        <div className="card">
-          <h1>{strings.errors.invalidLinkTitle}</h1>
-          <p>{strings.errors.invalidLinkText}</p>
-          <Link className="button" to="/">
-            {strings.join.createButton}
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  if (!validRoomId.ok) return <InvalidLinkScreen />;
 
   const backToIdle = () => {
     clearPendingJoin();
     dispatch({ type: 'BACK_TO_IDLE' });
   };
+  const dismissMediaError = () => dispatch({ type: 'MEDIA_ERROR_DISMISSED' });
 
   switch (state.screen) {
     case 'idle':
@@ -109,136 +92,112 @@ export function RoomPage() {
         />
       );
 
-    // ── Экраны ошибок: финальный вид — группа 11 ─────────────────────────────
+    // ── Экраны ошибок (задачи 11.1–11.3) ─────────────────────────────────────
     case 'roomFull':
-      return (
-        <main className="screen screen--center">
-          <div className="card">
-            <h1>{strings.errors.roomFullTitle}</h1>
-            <p>{strings.errors.roomFullText}</p>
-            <button
-              className="button button--primary"
-              type="button"
-              onClick={() => dispatch({ type: 'RETRY_JOIN' })}
-            >
-              {strings.errors.roomFullRetry}
-            </button>
-          </div>
-        </main>
-      );
+      return <RoomFullScreen onRetry={() => dispatch({ type: 'RETRY_JOIN' })} />;
 
     case 'serverError':
-      return (
-        <main className="screen screen--center">
-          <div className="card">
-            <h1>{strings.errors.serverErrorTitle}</h1>
-            <p>{strings.errors.serverErrorText}</p>
-            <button
-              className="button button--primary"
-              type="button"
-              onClick={() => dispatch({ type: 'RETRY_JOIN' })}
-            >
-              {strings.errors.serverErrorRetry}
-            </button>
-          </div>
-        </main>
-      );
+      return <ServerErrorScreen onRetry={() => dispatch({ type: 'RETRY_JOIN' })} />;
 
     case 'left':
+      return <LeftScreen onBack={backToIdle} />;
+
+    /*
+     * Оба состояния недостижимы на этом маршруте: проверка окружения выполняется
+     * до монтирования App (`main.tsx`, ФТ-36). Разобраны ради полноты — иначе
+     * они провалились бы в экран ожидания и показали «Подключаемся…».
+     */
+    case 'checkingSupport':
       return (
-        <main className="screen screen--center">
-          <div className="card">
-            <h1>{strings.errors.leftTitle}</h1>
-            <p>{strings.errors.leftText}</p>
-            <button className="button button--primary" type="button" onClick={backToIdle}>
-              {strings.errors.leftBack}
-            </button>
-          </div>
-        </main>
+        <StatusScreen
+          phase="connecting"
+          roomId={validRoomId.value}
+          name={state.selfName}
+          mediaError={null}
+          media={session.media}
+          onDismissMediaError={dismissMediaError}
+          onCancel={backToIdle}
+        />
       );
+
+    case 'unsupported':
+      return <UnsupportedScreen kind={state.unsupported ?? 'WEBRTC_UNSUPPORTED'} />;
 
     case 'inRoom': {
       const participants = orderedParticipants(state);
       return (
         <main className="screen">
           <div className="room">
-            <h1>{strings.app.title}</h1>
-            <p className="muted">
-              Комната <code>{validRoomId.value}</code> · {strings.room.participants}:{' '}
-              {participants.length}
-            </p>
+            <header className="room__header">
+              <h1 className="room__title">{strings.app.title}</h1>
+              <p className="muted">
+                Комната <code>{validRoomId.value}</code>
+              </p>
+            </header>
 
-            {/* Раскладка сетки (1 / 2 / 3–4 плитки) — задача 10.3. */}
-            <div className="grid">
-              {participants.map((participant) => {
-                const isSelf = participant.id === state.selfId;
-                return (
-                  <ParticipantTile
-                    key={participant.id}
-                    participant={participant}
-                    isSelf={isSelf}
-                    connectionState={state.peerConnectionStates[participant.id]}
-                    attachVideo={
-                      isSelf ? session.attachSelfVideo : session.attachPeerVideo(participant.id)
-                    }
-                  />
-                );
-              })}
+            <div className="room__stage">
+              {/*
+               * ★ Оверлей автозапуска накрывает ТОЛЬКО сетку, поэтому у него
+               * отдельная рамка. Накрой он всю сцену — перехватил бы клики по
+               * «Выйти» и тумблерам, то есть подсказка про звук заперла бы
+               * пользователя в комнате (задача 11.5).
+               */}
+              <div className="stage__video">
+                {/* Сетка 1 / 2 / 3–4 плитки (задача 10.3, ФТ-11). */}
+                <VideoGrid
+                  participants={participants}
+                  selfId={state.selfId}
+                  peerConnectionStates={state.peerConnectionStates}
+                  attachVideo={session.attachVideo}
+                />
+
+                {session.audioBlocked && <UnmuteAudioGate onEnable={session.enableAudio} />}
+              </div>
+
+              <Controls
+                media={session.media}
+                onToggleMic={session.toggleMic}
+                onToggleCamera={session.toggleCamera}
+                onLeave={session.leave}
+              />
+
+              {/* Баннер медиа: пользователь остаётся в комнате (ФТ-33, US-12). */}
+              {state.mediaError && (
+                <MediaErrorBanner
+                  kind={state.mediaError}
+                  // Текст уточняется по фактическому состоянию: при отказе только
+                  // в камере писать «вас не слышно» неверно.
+                  media={session.media}
+                  onDismiss={dismissMediaError}
+                />
+              )}
             </div>
 
-            <div className="controls">
-              <button className="button" type="button" onClick={session.toggleMic}>
-                {session.media.audio ? strings.room.micOn : strings.room.micOff}
-              </button>
-              <button className="button" type="button" onClick={session.toggleCamera}>
-                {session.media.video ? strings.room.cameraOn : strings.room.cameraOff}
-              </button>
-              <button className="button" type="button" onClick={session.leave}>
-                {strings.room.leave}
-              </button>
-            </div>
-
-            {state.mediaError && (
-              <p className="hint hint--error">{mediaErrorText(state.mediaError)}</p>
-            )}
-
-            {/* Журнал системных событий: панель чата — задача 10.6. */}
-            <h2>События</h2>
-            <ul className="events">
-              {state.messages.filter(isSystemChatItem).map((item) => (
-                <li key={item.id}>
-                  {formatTime(item.ts)}{' '}
-                  {item.kind === 'join'
-                    ? strings.system.join(item.name)
-                    : item.kind === 'leave'
-                      ? strings.system.leave(item.name)
-                      : strings.system.shutdown}
-                </li>
-              ))}
-            </ul>
+            <aside className="room__side">
+              <ParticipantList participants={participants} selfId={state.selfId} />
+              <ChatPanel
+                messages={state.messages}
+                chatError={state.chatError}
+                onSend={session.sendChatMessage}
+              />
+            </aside>
           </div>
         </main>
       );
     }
 
-    default:
+    case 'acquiringMedia':
+    case 'connecting':
       return (
-        <main className="screen screen--center">
-          <div className="card">
-            <h1>{strings.app.title}</h1>
-            <p aria-live="polite">
-              {state.screen === 'acquiringMedia'
-                ? strings.room.acquiringMedia
-                : strings.room.connecting}
-            </p>
-            <p className="muted">
-              Комната <code>{validRoomId.value}</code>, имя <strong>{state.selfName}</strong>.
-            </p>
-            <button className="button" type="button" onClick={backToIdle}>
-              {strings.errors.leftBack}
-            </button>
-          </div>
-        </main>
+        <StatusScreen
+          phase={state.screen}
+          roomId={validRoomId.value}
+          name={state.selfName}
+          mediaError={state.mediaError}
+          media={session.media}
+          onDismissMediaError={dismissMediaError}
+          onCancel={backToIdle}
+        />
       );
   }
 }

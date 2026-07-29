@@ -25,7 +25,7 @@
  *    сокет. `beforeunload` не нужен — socket.io сам присылает `disconnect`.
  */
 import type { Dispatch } from 'react';
-import type { MediaState } from '@video-chat/shared';
+import type { ChatAck, MediaState } from '@video-chat/shared';
 import type { MediaErrorKind, RoomAction } from '../state/roomReducer';
 import { LocalMedia } from './localMedia';
 import { PeerManager } from './PeerManager';
@@ -58,6 +58,8 @@ export interface RoomSessionDeps {
 }
 
 export interface RoomSession {
+  /** Отправить сообщение в чат (ФТ-21). Ошибку показывает UI по коду ack. */
+  sendChatMessage: (text: string) => Promise<ChatAck>;
   toggleMic: () => void;
   toggleCamera: () => void;
   getMediaState: () => MediaState;
@@ -176,6 +178,13 @@ export function startRoomSession(deps: RoomSessionDeps): RoomSession {
   });
 
   return {
+    sendChatMessage: async (text) => {
+      if (!connection) return { ok: false, error: 'NOT_IN_ROOM' };
+      const ack = await connection.sendChatMessage(text);
+      // Код ошибки кладём в состояние: подсказку у поля рисует UI (TDD §8.1).
+      dispatch({ type: 'CHAT_ERROR', code: ack.ok ? null : ack.error });
+      return ack;
+    },
     toggleMic: () => void local.setMicEnabled(!local.state.audio),
     toggleCamera: () => void local.setCameraEnabled(!local.state.video),
     getMediaState: () => local.state,

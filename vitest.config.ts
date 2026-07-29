@@ -2,11 +2,19 @@ import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 /**
- * Конфигурация тестов монорепо (задача IP 1.1).
+ * Конфигурация тестов монорепо (задача IP 1.1; проект `dom` — задача 12).
  *
- * Пока весь код исполняется в Node: сервер, общий пакет и чистые функции клиента.
- * Компонентные тесты на jsdom + RTL добавляет группа 12 — там появится отдельный
- * project с `environment: 'jsdom'`, чтобы не тянуть jsdom в серверные тесты.
+ * Два project'а вместо одного окружения:
+ *
+ * - **node** — сервер, общий пакет, чистая логика клиента и разметка через
+ *   `react-dom/server`. Файлы исполняются последовательно: серверные тесты
+ *   поднимают настоящие http/socket.io-серверы на своих портах.
+ * - **dom** — компонентные тесты на jsdom + RTL (группа 12). Отдельный project
+ *   нужен, чтобы **не тянуть jsdom в серверные тесты**: он заметно медленнее и
+ *   подменяет глобальные объекты, которых на сервере быть не должно.
+ *
+ * ★ Признак проекта — суффикс `.dom.test.tsx`, а не каталог: компонентные тесты
+ * лежат рядом с компонентами, как и все остальные тесты в проекте.
  */
 export default defineConfig({
   resolve: {
@@ -17,19 +25,45 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'node',
-    include: ['{shared,server,client}/src/**/*.test.{ts,tsx}'],
-    // Серверные тесты поднимают реальные http/socket.io-серверы на своих портах,
-    // поэтому файлы не должны исполняться параллельно в одном процессе.
-    fileParallelism: false,
-    testTimeout: 15_000,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: ['{shared,server,client}/src/**/*.test.{ts,tsx}'],
+          // Компонентные тесты уходят в project `dom`.
+          exclude: ['**/*.dom.test.tsx'],
+          fileParallelism: false,
+          testTimeout: 15_000,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'dom',
+          environment: 'jsdom',
+          include: ['client/src/**/*.dom.test.tsx'],
+          setupFiles: ['client/src/domMatchers.test-utils.ts'],
+          testTimeout: 15_000,
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['{shared,server,client}/src/**/*.{ts,tsx}'],
       exclude: ['**/*.test.{ts,tsx}', 'client/src/main.tsx'],
-      // Порог 75 % включается в CI (задача 15.1), когда появится основной объём кода.
-      thresholds: { lines: 0, functions: 0, branches: 0, statements: 0 },
+      /*
+       * Порог из TDD §11.1 включён в группе 12, когда появился основной объём
+       * кода: фактические 94 % строк иначе могли бы молча просесть за оставшиеся
+       * группы. В CI это станет отдельным шагом (задача 15.1).
+       *
+       * Порог именно 75 %, а не «по факту»: планка не должна расти сама от
+       * удачного прогона, иначе любой новый непокрытый модуль ломает сборку и
+       * порог начинают понижать вручную.
+       */
+      thresholds: { lines: 75, functions: 75, branches: 75, statements: 75 },
     },
   },
 });

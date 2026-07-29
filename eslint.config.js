@@ -83,7 +83,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['eslint.config.js', 'vitest.config.ts'],
+          allowDefaultProject: ['eslint.config.js', 'vitest.config.ts', 'playwright.config.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -145,7 +145,7 @@ export default tseslint.config(
 
   // ── Тесты ───────────────────────────────────────────────────────────────────
   {
-    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.test-utils.ts'],
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.test-utils.ts', 'e2e/**/*.ts'],
     rules: {
       // В тестах допустима работа с console: заглушение шумных предупреждений
       // библиотек и диагностика падений.
@@ -163,7 +163,7 @@ export default tseslint.config(
   // воркспейсов, поэтому типы плагинов не разрешаются и правила дают ложные
   // «unsafe any» на каждый импорт.
   {
-    files: ['eslint.config.js', 'vitest.config.ts'],
+    files: ['eslint.config.js', 'vitest.config.ts', 'playwright.config.ts'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: { globals: globals.node },
     rules: {
