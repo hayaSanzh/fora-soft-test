@@ -227,7 +227,7 @@ describe('лимит 4 участника (ФТ-7, ФТ-8, US-5, TDD §11.3 п.2
   });
 });
 
-describe('выход и обрыв (ФТ-25, ФТ-27, ФТ-28, ФТ-31, TDD §11.3 п.6)', () => {
+describe('выход и обрыв (ФТ-25, ФТ-27, ФТ-28, ФТ-31, US-11, TDD §11.3 п.6)', () => {
   it('★ disconnect → peer:left и системное сообщение «покинул комнату»', async () => {
     h = await createHarness();
     const a = await h.join('room-1', 'Аня');
@@ -314,5 +314,61 @@ describe('выход и обрыв (ФТ-25, ФТ-27, ФТ-28, ФТ-31, TDD §11
 
     expect(second.ack.ok).toBe(true);
     expect(h.rooms.stats()).toEqual({ rooms: 1, participants: 2 });
+  });
+});
+
+/**
+ * ★ Требование-отрицание: у создателя комнаты нет особых прав (ФТ-32).
+ *
+ * Такие требования легко считать выполненными «по умолчанию» и не проверять
+ * вовсе — понятия «владелец» в коде действительно нет. Но именно поэтому оно и
+ * уязвимо: привилегию первого участника ничего не мешает добавить позже, и
+ * никакой тест не упадёт. Аудит трассировки в группе 16 показал, что ФТ-32 —
+ * единственное требование PRD без единой ссылки в коде и тестах.
+ */
+describe('ФТ-32: все участники равны, у создателя нет привилегий', () => {
+  it('★ в модели участника нет полей роли или владения', async () => {
+    h = await createHarness();
+    const creator = await h.join('room-1', 'Аня');
+
+    expect(creator.ack.ok).toBe(true);
+    if (!creator.ack.ok) return;
+
+    // Ровно эти поля и никаких `isHost` / `owner` / `role`.
+    expect(Object.keys(creator.ack.self).sort()).toEqual(['id', 'joinedAt', 'media', 'name']);
+  });
+
+  it('★ снимок комнаты не отличает создателя от остальных', async () => {
+    h = await createHarness();
+    await h.join('room-1', 'Аня');
+    await h.join('room-1', 'Борис');
+    const third = await h.join('room-1', 'Вера');
+
+    expect(third.ack.ok).toBe(true);
+    if (!third.ack.ok) return;
+
+    const shapes = third.ack.room.participants.map((p) => Object.keys(p).sort().join(','));
+    // Все участники описаны одинаковым набором полей.
+    expect(new Set(shapes).size).toBe(1);
+  });
+
+  it('★ выход создателя не закрывает комнату и не меняет прав остальных', async () => {
+    h = await createHarness();
+    const creator = await h.join('room-1', 'Аня');
+    const second = await h.join('room-1', 'Борис');
+
+    creator.client.emit('room:leave');
+    await waitFor(second.client, 'peer:left');
+
+    // Комната жива, второй участник продолжает пользоваться ею полностью:
+    // отправляет сообщение и получает его обратно рассылкой.
+    expect(h.rooms.stats()).toEqual({ rooms: 1, participants: 1 });
+
+    const third = await h.join('room-1', 'Вера');
+    expect(third.ack.ok).toBe(true);
+
+    const delivered = waitForMatch(third.client, 'chat:message', (m) => m.type === 'user');
+    second.client.emit('chat:message', { text: 'создателя больше нет, всё работает' }, () => {});
+    expect((await delivered).type).toBe('user');
   });
 });

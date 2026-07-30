@@ -4,7 +4,7 @@
 |---|---|
 | **Документ** | Чек-лист ручных проверок (задача IP 14.1) |
 | **Основан на** | TDD §11.5, `impl-video-chat-room.md` группа 14 |
-| **Что автоматизировано** | 40 E2E-тестов (`npm run test:e2e`) + 623 unit/компонентных (`npm run verify`) |
+| **Что автоматизировано** | 40 E2E-тестов (`npm run test:e2e`) + 626 unit/компонентных (`npm run verify`) |
 | **Назначение** | зафиксировать то, что **физически невозможно** проверить автоматикой, и способ проверки |
 
 ---
@@ -16,7 +16,7 @@
 Перед началом:
 
 ```bash
-npm run verify        # typecheck, lint, формат, 623 теста, сборка
+npm run verify        # typecheck, lint, формат, 626 тестов, сборка
 npm run test:e2e      # 40 E2E: Chromium + Firefox, настоящий WebRTC
 npm run serve         # http://localhost:3001
 ```

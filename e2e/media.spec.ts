@@ -27,7 +27,7 @@ import {
   tiles,
 } from './helpers';
 
-test.describe('E6 ★ выключение камеры не останавливает звук (ФТ-18, ФТ-19, R5)', () => {
+test.describe('E6 ★ выключение камеры не останавливает звук (ФТ-18, ФТ-19, US-7, R5)', () => {
   test('★ у собеседника появилась заглушка, а аудио продолжает идти', async ({ browser }) => {
     const roomId = newRoomId('camoff');
     const anya = await joinRoom(browser, roomId, 'Аня');
@@ -125,7 +125,7 @@ test.describe('E6 ★ выключение камеры не останавли�
   });
 });
 
-test.describe('E7 выключение микрофона (ФТ-16)', () => {
+test.describe('E7 выключение микрофона (ФТ-16, US-7)', () => {
   test('★ у собеседника появилась иконка перечёркнутого микрофона', async ({ browser }) => {
     const roomId = newRoomId('micoff');
     const anya = await joinRoom(browser, roomId, 'Аня');

@@ -15,7 +15,7 @@ async function sendMessage(participant: Participant, text: string): Promise<void
   await participant.page.getByRole('button', { name: 'Отправить' }).click();
 }
 
-test.describe('E8 закрытие вкладки (ФТ-25, ФТ-31, US-10)', () => {
+test.describe('E8 закрытие вкладки (ФТ-25, ФТ-31, US-10, US-11)', () => {
   test('★ плитка исчезла и появилось системное сообщение о выходе', async ({ browser }) => {
     const roomId = newRoomId('close');
     const anya = await joinRoom(browser, roomId, 'Аня');
