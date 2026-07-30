@@ -83,7 +83,12 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['eslint.config.js', 'vitest.config.ts', 'playwright.config.ts'],
+          allowDefaultProject: [
+            'eslint.config.js',
+            'vitest.config.ts',
+            'playwright.config.ts',
+            'scripts/*.mjs',
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -163,11 +168,19 @@ export default tseslint.config(
   // воркспейсов, поэтому типы плагинов не разрешаются и правила дают ложные
   // «unsafe any» на каждый импорт.
   {
-    files: ['eslint.config.js', 'vitest.config.ts', 'playwright.config.ts'],
+    files: [
+      'eslint.config.js',
+      'vitest.config.ts',
+      'playwright.config.ts',
+      // Скрипты эксплуатации (задача 15.4): обычный Node без сборки, в tsconfig
+      // воркспейсов не входят.
+      'scripts/**/*.mjs',
+    ],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: { globals: globals.node },
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,
+      // Инструменты эксплуатации печатают результат в stdout — это их назначение.
       'no-console': 'off',
     },
   },

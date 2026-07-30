@@ -164,6 +164,76 @@ describe('8.2 ★ фиксированные трансиверы (нюанс 1)
     expect(config.maxVideoBitrate).toBeNull();
     expect(videoSender.setParametersCalls).toHaveLength(0);
   });
+
+  /**
+   * ★ Проверка **включённого** потолка (задача 14.7, риск R2).
+   *
+   * До группы 14 проверялось только выключенное состояние, то есть единственная
+   * мера против упирания в канал на четырёх участниках существовала «на словах»:
+   * инструкция велит включить `VITE_MAX_VIDEO_BITRATE` по результатам замеров, а
+   * работает ли флаг — никто не проверял. Потолок вынесен в опции `PeerManager`
+   * ровно ради этой проверки.
+   */
+  describe('★ включённый потолок битрейта (Q5, R2, задача 14.7)', () => {
+    it('★ maxBitrate попадает в каждый encoding видеоотправителя', async () => {
+      const h = harness({
+        maxVideoBitrate: 800_000,
+        getLocalTracks: () => ({ audio: null, video: fakeTrack('video') }),
+      });
+
+      h.manager.addPeer('peer-1', false);
+      await tick();
+
+      const videoSender = h.last().getSenders()[1] as FakeSender;
+      expect(videoSender.setParametersCalls).toHaveLength(1);
+      const encodings = videoSender.setParametersCalls[0]?.encodings ?? [];
+      expect(encodings.length).toBeGreaterThan(0);
+      for (const encoding of encodings) expect(encoding.maxBitrate).toBe(800_000);
+    });
+
+    it('★ аудиоотправителя потолок не касается: речь важнее картинки', async () => {
+      const h = harness({
+        maxVideoBitrate: 800_000,
+        getLocalTracks: () => ({ audio: fakeTrack('audio'), video: fakeTrack('video') }),
+      });
+
+      h.manager.addPeer('peer-1', false);
+      await tick();
+
+      const audioSender = h.last().getSenders()[0] as FakeSender;
+      expect(audioSender.setParametersCalls).toHaveLength(0);
+    });
+
+    it('★ потолок применяется и при возврате камеры через replaceTrack', async () => {
+      const h = harness({ maxVideoBitrate: 500_000 });
+
+      h.manager.addPeer('peer-1', false);
+      await tick();
+      const videoSender = h.last().getSenders()[1] as FakeSender;
+      const before = videoSender.setParametersCalls.length;
+
+      await h.manager.replaceOutgoingVideo(fakeTrack('video'));
+
+      expect(videoSender.setParametersCalls.length).toBe(before + 1);
+      expect(videoSender.setParametersCalls.at(-1)?.encodings?.[0]?.maxBitrate).toBe(500_000);
+    });
+
+    it('★ выключение камеры потолок не применяет: дорожки нет', async () => {
+      const h = harness({
+        maxVideoBitrate: 500_000,
+        getLocalTracks: () => ({ audio: null, video: fakeTrack('video') }),
+      });
+
+      h.manager.addPeer('peer-1', false);
+      await tick();
+      const videoSender = h.last().getSenders()[1] as FakeSender;
+      const before = videoSender.setParametersCalls.length;
+
+      await h.manager.replaceOutgoingVideo(null);
+
+      expect(videoSender.setParametersCalls.length).toBe(before);
+    });
+  });
 });
 
 describe('8.3 ★ антиглэр: один оффер на пару (нюанс 2)', () => {

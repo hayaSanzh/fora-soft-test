@@ -52,6 +52,14 @@ export interface PeerManagerOptions extends PeerManagerCallbacks {
   createPeerConnection?: (configuration: RTCConfiguration) => RTCPeerConnection;
   /** Подменяется в тестах (в Node нет `MediaStream`). */
   createMediaStream?: () => MediaStream;
+  /**
+   * Потолок исходящего видеобитрейта, бит/с (Q5). По умолчанию берётся из
+   * конфигурации, где он выключен. Вынесен в опции, чтобы **включённое**
+   * состояние можно было проверить тестом: это единственная мера против
+   * упирания в канал на четырёх участниках (риск R2), и она обязана работать не
+   * только на словах.
+   */
+  maxVideoBitrate?: number | null;
 }
 
 interface PeerEntry {
@@ -85,6 +93,8 @@ export class PeerManager {
     audio: MediaStreamTrack | null;
     video: MediaStreamTrack | null;
   };
+  /** Потолок исходящего видеобитрейта, бит/с; `null` — без ограничения (Q5). */
+  private readonly maxVideoBitrate: number | null;
   private selfId: string;
 
   constructor(options: PeerManagerOptions) {
@@ -94,6 +104,7 @@ export class PeerManager {
       options.createPeerConnection ?? ((configuration) => new RTCPeerConnection(configuration));
     this.createMediaStream = options.createMediaStream ?? (() => new MediaStream());
     this.getLocalTracks = options.getLocalTracks ?? (() => ({ audio: null, video: null }));
+    this.maxVideoBitrate = options.maxVideoBitrate ?? config.maxVideoBitrate;
   }
 
   /** `selfId` известен только после ack `room:join`. */
@@ -372,7 +383,7 @@ export class PeerManager {
    * нормирует. Включается флагом по результатам замеров на 4 участниках.
    */
   private applyVideoBitrate(sender: RTCRtpSender): void {
-    const maxBitrate = config.maxVideoBitrate;
+    const maxBitrate = this.maxVideoBitrate;
     if (maxBitrate === null) return;
     try {
       const parameters = sender.getParameters();

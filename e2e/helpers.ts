@@ -10,7 +10,7 @@
  * выставить соединения на `window` из самого клиента — означала бы тестовый код
  * в продакшен-бандле и возможность «починить» тест, сломав приложение.
  */
-import { expect, type Browser, type Page } from '@playwright/test';
+import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 /** Каждый участник — отдельный browser context: свои устройства и разрешения. */
 export interface Participant {
@@ -41,8 +41,40 @@ const COLLECT_PEER_CONNECTIONS = `
       }
     }
     window.RTCPeerConnection = Collected;
+
+    /*
+     * ★ Собираем и локальные дорожки (задача 14.5, риск R7).
+     *
+     * Ровно это показывает chrome://webrtc-internals глазами: остались ли после
+     * выхода живые соединения и незакрытые дорожки. Программного API для этой
+     * страницы нет, но сами объекты доступны — если их перехватить до старта
+     * приложения.
+     */
+    const getUserMedia = navigator.mediaDevices?.getUserMedia;
+    window.__tracks = [];
+    if (getUserMedia) {
+      navigator.mediaDevices.getUserMedia = function (...args) {
+        return getUserMedia.apply(this, args).then((stream) => {
+          for (const track of stream.getTracks()) window.__tracks.push(track);
+          return stream;
+        });
+      };
+    }
   })();
 `;
+
+/**
+ * Выдаёт разрешения на устройства.
+ *
+ * ★ В Firefox `grantPermissions('camera')` не поддерживается: там разрешения и
+ * фейковые устройства включаются настройками профиля (см. `playwright.config.ts`).
+ * Поэтому вызов пропускается по типу браузера, а не глушится `try/catch` —
+ * иначе так же молча проглатывались бы настоящие ошибки.
+ */
+async function grantMedia(browser: Browser, context: BrowserContext): Promise<void> {
+  if (browser.browserType().name() === 'firefox') return;
+  await context.grantPermissions(['camera', 'microphone']);
+}
 
 /** Открывает нового участника в собственном контексте и входит в комнату. */
 export async function joinRoom(
@@ -52,10 +84,7 @@ export async function joinRoom(
   options: { grantMedia?: boolean } = {},
 ): Promise<Participant> {
   const context = await browser.newContext();
-  if (options.grantMedia !== false) {
-    // В project'е без `--use-fake-ui` разрешения выдаются точечно.
-    await context.grantPermissions(['camera', 'microphone']);
-  }
+  if (options.grantMedia !== false) await grantMedia(browser, context);
   await context.addInitScript(COLLECT_PEER_CONNECTIONS);
 
   const page = await context.newPage();
@@ -72,7 +101,7 @@ export async function openRoomPage(
   options: { grantMedia?: boolean } = {},
 ): Promise<Participant> {
   const context = await browser.newContext();
-  if (options.grantMedia) await context.grantPermissions(['camera', 'microphone']);
+  if (options.grantMedia) await grantMedia(browser, context);
   await context.addInitScript(COLLECT_PEER_CONNECTIONS);
 
   const page = await context.newPage();
@@ -174,5 +203,91 @@ export async function connectionStates(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const connections = (window as unknown as { __pcs?: RTCPeerConnection[] }).__pcs ?? [];
     return connections.map((pc) => pc.connectionState);
+  });
+}
+
+export interface ResourceState {
+  /** Соединения, ещё не переведённые в `closed`. */
+  openConnections: number;
+  /** Локальные дорожки, ещё не остановленные (`readyState !== 'ended'`). */
+  liveTracks: number;
+  totalConnections: number;
+  totalTracks: number;
+}
+
+/**
+ * Что осталось живым: соединения и локальные дорожки (задача 14.5, риск R7).
+ *
+ * Это программный эквивалент ручного чтения `chrome://webrtc-internals`: у
+ * страницы нет API, но сами объекты доступны, потому что перехвачены до старта
+ * приложения.
+ */
+export async function resourceState(page: Page): Promise<ResourceState> {
+  return page.evaluate(() => {
+    const scope = window as unknown as {
+      __pcs?: RTCPeerConnection[];
+      __tracks?: MediaStreamTrack[];
+    };
+    const connections = scope.__pcs ?? [];
+    const tracks = scope.__tracks ?? [];
+
+    return {
+      openConnections: connections.filter((pc) => pc.connectionState !== 'closed').length,
+      liveTracks: tracks.filter((track) => track.readyState !== 'ended').length,
+      totalConnections: connections.length,
+      totalTracks: tracks.length,
+    };
+  });
+}
+
+export interface LatencyStats {
+  /** Круговая задержка выбранной ICE-пары, мс; `null` — статистики ещё нет. */
+  roundTripMs: number | null;
+  /** Задержка буфера воспроизведения видео, мс. */
+  videoJitterBufferMs: number | null;
+}
+
+/**
+ * Задержка по данным `getStats()` (задача 14.3).
+ *
+ * ★ На loopback это **не** проверка требования «≤ 500 мс»: тут нет ни сети, ни
+ * реального кодирования на разных машинах. Функция нужна для двух других вещей:
+ * подтвердить, что измеряемые поля вообще заполняются (иначе ручной LAN-замер
+ * нечем делать), и дать готовый инструмент для прогона между физическими
+ * машинами — см. `docs/manual-verification-video-chat-room.md`.
+ */
+export async function latencyStats(page: Page): Promise<LatencyStats> {
+  return page.evaluate(async () => {
+    const connections = (window as unknown as { __pcs?: RTCPeerConnection[] }).__pcs ?? [];
+    let roundTripMs: number | null = null;
+    let videoJitterBufferMs: number | null = null;
+
+    for (const pc of connections) {
+      const report = await pc.getStats();
+      report.forEach((entry: RTCStats) => {
+        if (entry.type === 'candidate-pair') {
+          const pair = entry as RTCIceCandidatePairStats;
+          if (pair.state === 'succeeded' && typeof pair.currentRoundTripTime === 'number') {
+            roundTripMs = pair.currentRoundTripTime * 1000;
+          }
+        }
+        if (entry.type === 'inbound-rtp') {
+          const stat = entry as RTCInboundRtpStreamStats & {
+            jitterBufferDelay?: number;
+            jitterBufferEmittedCount?: number;
+          };
+          if (
+            stat.kind === 'video' &&
+            typeof stat.jitterBufferDelay === 'number' &&
+            typeof stat.jitterBufferEmittedCount === 'number' &&
+            stat.jitterBufferEmittedCount > 0
+          ) {
+            videoJitterBufferMs = (stat.jitterBufferDelay / stat.jitterBufferEmittedCount) * 1000;
+          }
+        }
+      });
+    }
+
+    return { roundTripMs, videoJitterBufferMs };
   });
 }

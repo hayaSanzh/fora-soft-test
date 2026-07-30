@@ -1,0 +1,229 @@
+# CI/CD (задача IP 15.1, TDD §12.3).
+#
+# Семь шагов из §12.3, разложенные на четыре job'а. Порядок не косметика:
+# дорогие проверки не запускаются, пока не прошли дешёвые, а образ не собирается,
+# пока не прошли тесты.
+#
+# ★ Ключевое требование к пайплайну: E2E идут против **собранного артефакта**, а
+# не против dev-сервера, и образ **запускается**, а не только собирается.
+# Оба правила появились из настоящих дефектов: разбор «дефекта» на устаревшем
+# бандле (группа 7) и прод-образ, который собирался зелёным, но падал при старте
+# с `ERR_MODULE_NOT_FOUND` (группа 15).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Новый пуш в ту же ветку отменяет предыдущий прогон: держать очередь из
+  # прогонов на устаревшем коде смысла нет.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ── Шаги 1–4: статические проверки, тесты, сборка ───────────────────────────
+  verify:
+    name: Проверки и сборка
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # Шаг 1. Именно `npm ci`, а не `npm install`: установка обязана быть
+      # детерминированной и падать при рассинхронизации с package-lock.json.
+      - name: Шаг 1 — npm ci
+        run: npm ci
+
+      # Шаг 2. Типы, линт и формат. Линт содержит стражей требований:
+      # react/no-danger (ФТ-39), запрет web storage (PRD §5), запрет removeTrack
+      # (риск R4) — их падение означает нарушение требования, а не стиль.
+      - name: Шаг 2 — типы, линт, формат
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run format:check
+
+      # Шаг 3. Порог покрытия 75 % задан в vitest.config.ts, поэтому здесь
+      # достаточно одной команды: планка не может разойтись с локальным прогоном.
+      - name: Шаг 3 — тесты с покрытием
+        run: npm run test:coverage
+
+      # Шаг 4. Сборка всех воркспейсов; артефакт нужен следующему job'у.
+      - name: Шаг 4 — сборка
+        run: npm run build
+
+      - name: Артефакт сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            shared/dist
+            server/dist
+            client/dist
+          retention-days: 3
+
+  # ── Шаг 5: E2E против собранного артефакта ──────────────────────────────────
+  e2e:
+    name: E2E (Chromium + Firefox)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # Оба движка: кросс-браузерный прогон (задача 14.6) поймал дефект, из-за
+      # которого приложение не работало в Firefox вовсе.
+      - name: Установка браузеров
+        run: npx playwright install --with-deps chromium firefox
+
+      # Информационно: показывает, доступен ли runner'у исходящий UDP. На
+      # результат пайплайна не влияет — E2E работают на loopback и STUN им не
+      # нужен, но при разборе «почему звонок не поднялся» это первое, что смотрят.
+      - name: Сетевые предусловия (информационно)
+        continue-on-error: true
+        run: node scripts/check-network.mjs
+
+      # Playwright сам собирает клиент и поднимает сервер на своём порту 3101
+      # (см. playwright.config.ts): reuseExistingServer отключён, поэтому тесты
+      # физически не могут пройти против устаревшей сборки.
+      - name: Шаг 5 — E2E
+        run: npm run test:e2e
+
+      - name: Отчёт Playwright при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+  # ── Шаг 6: образ + проверка, что он ЗАПУСКАЕТСЯ ─────────────────────────────
+  image:
+    name: Docker-образ
+    needs: [verify, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Внутри Dockerfile есть проверка разрешимости импортов: если зависимость
+      # не доехала до образа, сборка падает здесь.
+      - name: Шаг 6 — docker build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: video-chat-room:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ★ Самое важное в этом job'е. Сборка образа ничего не доказывает: образ,
+      # падающий при старте, собирается точно так же успешно.
+      - name: Шаг 6б — образ запускается и отвечает на /health
+        run: |
+          set -euo pipefail
+          docker run -d --name vc-ci -p 127.0.0.1:3001:3001 video-chat-room:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3001/health > /tmp/health.json; then
+              echo "здоров после $attempt попыток: $(cat /tmp/health.json)"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3001/health | grep -q '"status":"ok"'
+          # Страница отдаётся и SPA-fallback работает: иначе прямой переход по
+          # ссылке-приглашению вернул бы 404.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/)" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/RoomAAAAAAAA)" = "200"
+
+      - name: Логи контейнера при падении
+        if: failure()
+        run: docker logs vc-ci || true
+
+      - name: Остановить контейнер
+        if: always()
+        run: docker rm -f vc-ci || true
+
+  # ── Шаг 7: деплой ───────────────────────────────────────────────────────────
+  #
+  # ★ Job намеренно оставлен неактивным до появления целевой среды: он требует
+  # секретов реестра и хоста. Включать его «на всякий случай» нельзя — молча
+  # непрогоняемый деплой хуже отсутствующего, потому что создаёт видимость CD.
+  #
+  # Что нужно для включения:
+  #   1. Секреты: REGISTRY, REGISTRY_USER, REGISTRY_TOKEN, DEPLOY_HOST, DEPLOY_KEY.
+  #   2. Снять `if: false`.
+  #   3. Завести GitHub Environment `production` с обязательным подтверждением:
+  #      рестарт уничтожает все активные комнаты (§12.4), поэтому деплой —
+  #      осознанное действие в окно низкой активности, а не следствие мержа.
+  #
+  # Процедура rollback описана в docs/deploy-video-chat-room.md.
+  deploy:
+    name: Деплой (требует секретов)
+    needs: image
+    if: false
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверить занятость комнат перед рестартом
+        run: |
+          # Рестарт уничтожает состояние в RAM: сначала смотрим, кого прервём.
+          ssh -o StrictHostKeyChecking=accept-new deploy@$DEPLOY_HOST \
+            "curl -fsS http://127.0.0.1:3001/health"
+
+      - name: Деплой образа
+        run: |
+          ssh deploy@$DEPLOY_HOST '
+            set -euo pipefail
+            # Тег предыдущего образа сохраняется для rollback.
+            docker tag video-chat-room:current video-chat-room:previous || true
+            docker pull $REGISTRY/video-chat-room:${{ github.sha }}
+            docker tag $REGISTRY/video-chat-room:${{ github.sha }} video-chat-room:current
+            docker compose up -d --no-deps app
+          '
+
+      - name: Шаг 7 — проверка /health после деплоя
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if ssh deploy@$DEPLOY_HOST "curl -fsS http://127.0.0.1:3001/health" | grep -q '"status":"ok"'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/health не ответил — выполняется rollback"
+          exit 1
+
+      - name: Rollback при неудаче
+        if: failure()
+        run: |
+          ssh deploy@$DEPLOY_HOST '
+            docker tag video-chat-room:previous video-chat-room:current
+            docker compose up -d --no-deps app
+          '

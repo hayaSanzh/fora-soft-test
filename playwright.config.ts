@@ -67,6 +67,32 @@ export default defineConfig({
       },
     },
     {
+      /*
+       * ★ Кросс-браузерный прогон (задача 14.6, PRD §7): Firefox 100+.
+       *
+       * Фейковые устройства включаются не флагами, а настройками:
+       * `media.navigator.streams.fake` подставляет синтетические камеру и
+       * микрофон, `media.navigator.permission.disabled` снимает запрос
+       * разрешений. Прогоняется **основной сценарий**, а не весь набор: цель —
+       * поймать различия движков в WebRTC (порядок трансиверов, поведение
+       * `replaceTrack`), а не перепроверять логику приложения второй раз.
+       */
+      name: 'firefox',
+      grep: /@cross-browser/,
+      use: {
+        ...devices['Desktop Firefox'],
+        viewport: { width: 1280, height: 900 },
+        launchOptions: {
+          firefoxUserPrefs: {
+            'media.navigator.streams.fake': true,
+            'media.navigator.permission.disabled': true,
+            'permissions.default.microphone': 1,
+            'permissions.default.camera': 1,
+          },
+        },
+      },
+    },
+    {
       // ★ Только для E11: без фейкового UI и без выданных разрешений — захват
       // недоступен, и `getUserMedia` отказывает по-настоящему (см. заголовок).
       name: 'chromium-no-media',

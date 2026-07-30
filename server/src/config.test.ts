@@ -48,9 +48,25 @@ describe('server config: значения из TDD', () => {
     expect(defaults.maxHttpBufferSize).toBe(100_000);
   });
 
-  it('лимит сигналинга 100 событий / 10 с (§10.4)', () => {
-    expect(defaults.signalRateMax).toBe(100);
+  /**
+   * ★ Порог выведен из измерения (задача 14.6): Firefox присылает ~99
+   * ICE-кандидатов на соединение против 8 у Chromium, поэтому прежние 100
+   * событий отключали легитимных пользователей Firefox уже на звонке вдвоём.
+   * Worst case — 3 соединения mesh, ~300 событий; 1000 даёт трёхкратный запас.
+   */
+  it('лимит сигналинга 1000 событий / 10 с (§10.4, задача 14.6)', () => {
+    expect(defaults.signalRateMax).toBe(1000);
     expect(defaults.signalRateWindowMs).toBe(10_000);
+  });
+
+  it('★ порога хватает на худший случай: 4 участника в Firefox (~300 событий)', () => {
+    // Прежнее значение 100 не проходило даже один звонок 1:1 в Firefox.
+    const firefoxCandidatesPerConnection = 100;
+    const meshConnections = defaults.maxParticipants - 1;
+
+    expect(defaults.signalRateMax).toBeGreaterThan(
+      firefoxCandidatesPerConnection * meshConnections,
+    );
   });
 
   it('только websocket-транспорт (§9.3)', () => {
